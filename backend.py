@@ -5,6 +5,8 @@ from PySide6.QtCore import QObject, Signal, Slot, Property, QSettings, QStandard
 import slixmpp
 import sqlite3
 import os
+import urllib.parse
+import urllib.request
 
 class XmppBackend(QObject):
     connectionStatusChanged = Signal(str)
@@ -117,9 +119,17 @@ class XmppBackend(QObject):
         # Explicitly assign loop to slixmpp
         self.client.loop = asyncio.get_running_loop()
         
+        # Register plugins
+        self.client.register_plugin('xep_0030') # Service Discovery
+        self.client.register_plugin('xep_0184') # Message Delivery Receipts
+        self.client.plugin['xep_0184'].auto_ack = True
+        self.client.plugin['xep_0184'].auto_request = False
+        self.client.register_plugin('xep_0363') # HTTP File Upload
+        
         # Register handlers
         self.client.add_event_handler("session_start", self._on_session_start)
         self.client.add_event_handler("message", self._on_message)
+        self.client.add_event_handler("receipt_received", self._on_receipt_received)
         self.client.add_event_handler("changed_status", self._on_presence_change)
         self.client.add_event_handler("presence_subscribe", self._on_subscribe_request)
         self.client.add_event_handler("failed_auth", self._on_failed_auth)
@@ -175,39 +185,84 @@ class XmppBackend(QObject):
             
         mto = self._active_chat_jid
         logging.info(f"Sending message to {mto}: {body}")
-        # Send via slixmpp
-        self.client.send_message(mto=mto, mbody=body, mtype='chat')
         
         # Log locally
         timestamp = datetime.now().strftime("%H:%M")
         my_bare_jid = self.client.boundjid.bare
         
-        # Save to database
-        msg_id = self.save_message_to_db(my_bare_jid, mto, 'me', body, timestamp, True)
-        
-        # Ensure recipient is in active chats list
-        if not self.chats_list_model.hasContact(mto):
-            roster = self.client.roster[my_bare_jid]
-            name = None
-            status = 'offline'
-            status_msg = ''
-            if mto in roster:
-                name = roster[mto]['name'] or mto.split('@')[0]
-                status, status_msg = self._get_contact_presence(mto)
-            else:
-                name = mto.split('@')[0]
-            self.chats_list_model.add_contact(mto, name=name, status=status, statusMessage=status_msg)
+        # Save to database with 'sending' status initially
+        msg_id = self.save_message_to_db(my_bare_jid, mto, 'me', body, timestamp, True, status='sending')
         
         msg_entry = {
             'sender': 'me',
             'body': body,
             'timestamp': timestamp,
-            'isMe': True
+            'isMe': True,
+            'status': 'sending'
         }
         if mto not in self._chats:
             self._chats[mto] = []
         self._chats[mto].append(msg_entry)
-        self.chat_model.add_message('me', body, timestamp, True, msg_id=msg_id)
+        
+        self.chat_model.add_message('me', body, timestamp, True, msg_id=msg_id, status='sending')
+        self.update_chats_list_model()
+        
+        # Send via slixmpp and request receipt
+        status = 'sent'
+        try:
+            msg = self.client.make_message(mto=mto, mbody=body, mtype='chat')
+            msg['id'] = str(msg_id)
+            msg['request_receipt'] = True
+            msg.send()
+        except Exception as e:
+            logging.error(f"Failed to send message over socket: {e}")
+            status = 'error'
+            
+        # Update status locally in DB and model
+        if msg_id:
+            try:
+                cursor = self.db_conn.cursor()
+                cursor.execute("UPDATE messages SET status = ? WHERE id = ?", (status, msg_id))
+                self.db_conn.commit()
+                self.chat_model.update_message_status(msg_id, status)
+            except Exception as e:
+                logging.error(f"Failed to update status in DB: {e}")
+                
+        self.update_chats_list_model()
+
+    @Slot(str)
+    def uploadFile(self, file_url):
+        # Run upload in background async task
+        asyncio.create_task(self._upload_file_async(file_url))
+
+    async def _upload_file_async(self, file_url):
+        # Convert file_url (e.g. file:///path/to/image.png) to local filesystem path
+        parsed = urllib.parse.urlparse(file_url)
+        local_path = urllib.request.url2pathname(parsed.path)
+        
+        logging.info(f"Initiating HTTP File Upload for local path: {local_path}")
+        
+        try:
+            if not self.client or not self.client.is_connected():
+                raise Exception("Not connected to XMPP server")
+                
+            # Perform upload via slixmpp xep_0363 plugin
+            download_url = await self.client['xep_0363'].upload_file(local_path)
+            logging.info(f"File uploaded successfully! URL: {download_url}")
+            
+            # Send the URL as a normal chat message
+            self.sendMessage(download_url)
+            
+        except Exception as e:
+            logging.error(f"HTTP File Upload failed: {e}", exc_info=True)
+            # Log error locally so user sees the failure
+            timestamp = datetime.now().strftime("%H:%M")
+            my_bare_jid = self.client.boundjid.bare
+            mto = self._active_chat_jid
+            if mto:
+                msg_id = self.save_message_to_db(my_bare_jid, mto, 'me', f"Failed to upload file: {e}", timestamp, True, status='error')
+                self.chat_model.add_message('me', f"Failed to upload file: {e}", timestamp, True, msg_id=msg_id, status='error')
+                self.update_chats_list_model()
 
     @Slot(str, str)
     def addContact(self, jid, nickname=""):
@@ -292,15 +347,16 @@ class XmppBackend(QObject):
             logging.info(f"Received message from {sender}: {body}")
             timestamp = datetime.now().strftime("%H:%M")
             
-            # Save to database
+            # Save to database (incoming messages are default to 'read' or 'sent', let's say 'read')
             my_bare_jid = self.client.boundjid.bare
-            msg_id = self.save_message_to_db(my_bare_jid, sender, sender, body, timestamp, False)
+            msg_id = self.save_message_to_db(my_bare_jid, sender, sender, body, timestamp, False, status='read')
             
             msg_entry = {
                 'sender': sender,
                 'body': body,
                 'timestamp': timestamp,
-                'isMe': False
+                'isMe': False,
+                'status': 'read'
             }
             
             if sender not in self._chats:
@@ -308,7 +364,7 @@ class XmppBackend(QObject):
             self._chats[sender].append(msg_entry)
             
             if self._active_chat_jid == sender:
-                self.chat_model.add_message(sender, body, timestamp, False, msg_id=msg_id)
+                self.chat_model.add_message(sender, body, timestamp, False, msg_id=msg_id, status='read')
             else:
                 self._unread_counts[sender] = self._unread_counts.get(sender, 0) + 1
                 
@@ -319,20 +375,22 @@ class XmppBackend(QObject):
                 else:
                     self.roster_model.update_contact(sender, unreadCount=self._unread_counts[sender])
 
-            # Ensure contact is in active chats list
-            if not self.chats_list_model.hasContact(sender):
-                roster = self.client.roster[my_bare_jid]
-                name = None
-                status = 'offline'
-                status_msg = ''
-                if sender in roster:
-                    name = roster[sender]['name'] or sender.split('@')[0]
-                    status, status_msg = self._get_contact_presence(sender)
-                else:
-                    name = sender.split('@')[0]
-                self.chats_list_model.add_contact(sender, name=name, status=status, statusMessage=status_msg, unreadCount=self._unread_counts.get(sender, 0))
-            else:
-                self.chats_list_model.update_contact(sender, unreadCount=self._unread_counts.get(sender, 0))
+            self.update_chats_list_model()
+
+    async def _on_receipt_received(self, msg):
+        acked_msg_id_str = msg['receipt']
+        sender = msg['from'].bare
+        logging.info(f"Received delivery receipt for message ID {acked_msg_id_str} from {sender}")
+        try:
+            msg_id = int(acked_msg_id_str)
+            cursor = self.db_conn.cursor()
+            cursor.execute("UPDATE messages SET status = 'read' WHERE id = ?", (msg_id,))
+            self.db_conn.commit()
+            
+            self.chat_model.update_message_status(msg_id, 'read')
+            self.update_chats_list_model()
+        except ValueError:
+            pass
 
     async def _on_presence_change(self, presence):
         jid = presence['from'].bare
@@ -411,9 +469,17 @@ class XmppBackend(QObject):
                     body TEXT,
                     timestamp TEXT,
                     is_me INTEGER,
+                    status TEXT DEFAULT 'sent',
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+            
+            # Check if status column exists in messages (migration for existing DBs)
+            cursor.execute("PRAGMA table_info(messages)")
+            columns = [info[1] for info in cursor.fetchall()]
+            if 'status' not in columns:
+                cursor.execute("ALTER TABLE messages ADD COLUMN status TEXT DEFAULT 'sent'")
+                
             cursor.execute("""
                 CREATE INDEX IF NOT EXISTS idx_messages_chat 
                 ON messages(account_jid, peer_jid)
@@ -423,13 +489,13 @@ class XmppBackend(QObject):
         except Exception as e:
             logging.error(f"Failed to initialize database: {e}", exc_info=True)
 
-    def save_message_to_db(self, account_jid, peer_jid, sender, body, timestamp, is_me):
+    def save_message_to_db(self, account_jid, peer_jid, sender, body, timestamp, is_me, status='sent'):
         try:
             cursor = self.db_conn.cursor()
             cursor.execute("""
-                INSERT INTO messages (account_jid, peer_jid, sender, body, timestamp, is_me)
-                VALUES (?, ?, ?, ?, ?, ?)
-            """, (account_jid, peer_jid, sender, body, timestamp, 1 if is_me else 0))
+                INSERT INTO messages (account_jid, peer_jid, sender, body, timestamp, is_me, status)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (account_jid, peer_jid, sender, body, timestamp, 1 if is_me else 0, status))
             self.db_conn.commit()
             return cursor.lastrowid
         except Exception as e:
@@ -440,7 +506,7 @@ class XmppBackend(QObject):
         try:
             cursor = self.db_conn.cursor()
             cursor.execute("""
-                SELECT id, sender, body, timestamp, is_me 
+                SELECT id, sender, body, timestamp, is_me, status 
                 FROM messages 
                 WHERE account_jid = ? AND peer_jid = ? 
                 ORDER BY created_at ASC, id ASC
@@ -453,7 +519,8 @@ class XmppBackend(QObject):
                     'sender': row[1],
                     'body': row[2],
                     'timestamp': row[3],
-                    'isMe': bool(row[4])
+                    'isMe': bool(row[4]),
+                    'status': row[5] or 'sent'
                 })
             return messages
         except Exception as e:
@@ -485,12 +552,35 @@ class XmppBackend(QObject):
                 else:
                     name = jid.split('@')[0]
                 
+                # Fetch last message details from SQLite DB
+                cursor.execute("""
+                    SELECT body, timestamp, is_me, status FROM messages 
+                    WHERE account_jid = ? AND peer_jid = ? 
+                    ORDER BY created_at DESC, id DESC LIMIT 1
+                """, (my_bare_jid, jid))
+                last_msg_row = cursor.fetchone()
+                
+                last_message = ""
+                last_message_time = ""
+                last_message_is_me = False
+                last_message_status = "sent"
+                
+                if last_msg_row:
+                    last_message = last_msg_row[0] or ""
+                    last_message_time = last_msg_row[1] or ""
+                    last_message_is_me = bool(last_msg_row[2])
+                    last_message_status = last_msg_row[3] or "sent"
+                
                 chat_contacts.append({
                     'jid': jid,
                     'name': name,
                     'status': status,
                     'statusMessage': status_msg,
-                    'unreadCount': self._unread_counts.get(jid, 0)
+                    'unreadCount': self._unread_counts.get(jid, 0),
+                    'lastMessage': last_message,
+                    'lastMessageTime': last_message_time,
+                    'lastMessageIsMe': last_message_is_me,
+                    'lastMessageStatus': last_message_status
                 })
             
             self.chats_list_model.set_contacts(chat_contacts)

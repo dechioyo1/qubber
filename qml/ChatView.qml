@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import QtQuick.Dialogs
 
 Item {
     id: root
@@ -24,10 +25,10 @@ Item {
         Rectangle {
             id: sidebar
             visible: !root.sidebarCollapsed
-            SplitView.preferredWidth: 320
-            SplitView.minimumWidth: 260
-            SplitView.maximumWidth: 380
-            color: "#111322" // Deep dark sidebar background
+            SplitView.preferredWidth: 240
+            SplitView.minimumWidth: 200
+            SplitView.maximumWidth: 300
+            color: window.sidebarBg
             
             // Border divider
             Rectangle {
@@ -46,7 +47,7 @@ Item {
                 Rectangle {
                     Layout.fillWidth: true
                     height: 56
-                    color: "#11132240"
+                    color: window.sidebarHeaderBg
                     
                     Rectangle {
                         anchors.bottom: parent.bottom
@@ -96,6 +97,7 @@ Item {
                         
                         Button {
                             id: collapseSidebarBtn
+                            visible: xmppBackend.activeChatJid !== ""
                             implicitWidth: 32
                             implicitHeight: 32
                             
@@ -271,7 +273,7 @@ Item {
                 Rectangle {
                     Layout.fillWidth: true
                     height: 46
-                    color: "#16192b"
+                    color: window.colInputBg
                     
                     Rectangle {
                         anchors.top: parent.top
@@ -283,8 +285,8 @@ Item {
                     
                     RowLayout {
                         anchors.fill: parent
-                        anchors.leftMargin: 16
-                        anchors.rightMargin: 16
+                        anchors.leftMargin: 8
+                        anchors.rightMargin: 8
                         spacing: 12
                         
                         Button {
@@ -355,6 +357,9 @@ Item {
                                         
                                         onClicked: {
                                             attachMenu.close()
+                                            fileDialog.title = "Select Image to Upload"
+                                            fileDialog.nameFilters = [ "Image files (*.png *.jpg *.jpeg *.gif *.webp)" ]
+                                            fileDialog.open()
                                         }
                                     }
                                     
@@ -387,6 +392,9 @@ Item {
                                         
                                         onClicked: {
                                             attachMenu.close()
+                                            fileDialog.title = "Select File to Upload"
+                                            fileDialog.nameFilters = [ "All files (*)" ]
+                                            fileDialog.open()
                                         }
                                     }
                                     
@@ -419,6 +427,7 @@ Item {
                                         
                                         onClicked: {
                                             attachMenu.close()
+                                            xmppBackend.sendMessage("https://www.openstreetmap.org/?mlat=50.4501&mlon=30.5234")
                                         }
                                     }
                                 }
@@ -480,4 +489,11 @@ Item {
         }
     }
     
+    FileDialog {
+        id: fileDialog
+        title: "Select File to Upload"
+        onAccepted: {
+            xmppBackend.uploadFile(selectedFile.toString())
+        }
+    }
 }

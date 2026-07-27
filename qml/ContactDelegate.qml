@@ -21,10 +21,30 @@ ItemDelegate {
     // Check if this contact is the active chat
     property bool isActive: model.jid === xmppBackend.activeChatJid
     
+    function getAvatarGradient(nameStr) {
+        var colors = [
+            ["#ff845e", "#d45246"], // Red / Orange
+            ["#9ad164", "#46ba43"], // Green
+            ["#e5ca77", "#d09306"], // Yellow / Gold
+            ["#518ffa", "#366ecf"], // Blue
+            ["#b694f9", "#6c61df"], // Purple
+            ["#ff8aac", "#d95574"], // Pink
+            ["#52b3e4", "#2c7dd4"], // Cyan
+            ["#febb5b", "#f68136"]  // Deep Orange
+        ];
+        if (!nameStr) return colors[0];
+        var hash = 0;
+        for (var i = 0; i < nameStr.length; i++) {
+            hash = nameStr.charCodeAt(i) + ((hash << 5) - hash);
+        }
+        var idx = Math.abs(hash) % colors.length;
+        return colors[idx];
+    }
+    
     background: Rectangle {
         color: delegate.isActive 
-            ? "#6366f122" // Semi-transparent indigo
-            : (delegate.hovered ? "#1e293b70" : "transparent")
+            ? window.sidebarBgActive
+            : (delegate.hovered ? window.sidebarBgOver : "transparent")
             
         // Left accent indicator for selected contact
         Rectangle {
@@ -37,8 +57,8 @@ ItemDelegate {
             radius: 2
         }
         
-        radius: 12
-        border.color: delegate.isActive ? "#6366f144" : "transparent"
+        radius: 0
+        border.color: delegate.isActive ? '#e41f84f9' : "transparent"
         border.width: 1
         
         Behavior on color { ColorAnimation { duration: 120 } }
@@ -53,21 +73,25 @@ ItemDelegate {
         
         // Presence avatar container
         Item {
-            width: 42
-            height: 42
+            width: 48
+            height: 48
             Layout.alignment: Qt.AlignVCenter
             
-            // Avatar circle background
+            // Avatar square background with 2px radius and colorful gradient
             Rectangle {
                 anchors.fill: parent
-                radius: 21
-                color: "#334155"
+                radius: 2
+                
+                gradient: Gradient {
+                    GradientStop { position: 0.0; color: getAvatarGradient(model.name || model.jid)[0] }
+                    GradientStop { position: 1.0; color: getAvatarGradient(model.name || model.jid)[1] }
+                }
                 
                 Text {
                     anchors.centerIn: parent
-                    text: model.name.substring(0, 1).toUpperCase()
-                    color: window.colText
-                    font.pixelSize: 16
+                    text: (model.name && model.name.length > 0) ? model.name.substring(0, 1).toUpperCase() : "?"
+                    color: "white"
+                    font.pixelSize: 22
                     font.bold: true
                 }
             }
@@ -92,27 +116,67 @@ ItemDelegate {
             }
         }
         
-        // Name, JID, and Status Message
+        // Name, JID, and Last Message / Status
         ColumnLayout {
             Layout.fillWidth: true
             Layout.alignment: Qt.AlignVCenter
             spacing: 2
             
-            Text {
-                text: model.name
-                color: window.colText
-                font.pixelSize: 14
-                font.bold: true
-                elide: Text.ElideRight
+            RowLayout {
                 Layout.fillWidth: true
+                spacing: 8
+                
+                Text {
+                    text: model.name
+                    color: delegate.isActive ? "white" : window.colText
+                    font.pixelSize: 14
+                    font.bold: true
+                    elide: Text.ElideRight
+                    Layout.fillWidth: true
+                }
+                
+                Text {
+                    text: (model.lastMessageTime !== undefined && model.lastMessageTime !== null) ? model.lastMessageTime : ""
+                    color: delegate.isActive ? "#ffffffc0" : window.colMuted
+                    font.pixelSize: 11
+                    Layout.alignment: Qt.AlignVCenter
+                }
             }
             
-            Text {
-                text: model.statusMessage !== "" ? model.statusMessage : model.jid
-                color: window.colMuted
-                font.pixelSize: 12
-                elide: Text.ElideRight
+            RowLayout {
                 Layout.fillWidth: true
+                spacing: 4
+                
+                Text {
+                    text: (model.lastMessage && model.lastMessage !== "") ? model.lastMessage : (model.statusMessage !== "" ? model.statusMessage : model.jid)
+                    color: delegate.isActive ? "#ffffffe0" : window.colMuted
+                    font.pixelSize: 14
+                    elide: Text.ElideRight
+                    Layout.fillWidth: true
+                }
+                
+                Image {
+                    visible: model.lastMessageIsMe !== undefined && model.lastMessageIsMe && model.lastMessage && model.lastMessage !== ""
+                    width: 14
+                    height: 14
+                    source: {
+                        var status = model.lastMessageStatus;
+                        if (delegate.isActive) {
+                            if (status === "sending") return "icons/hourglass_white.svg";
+                            if (status === "sent") return "icons/check_white.svg";
+                            if (status === "read") return "icons/done_all_white.svg";
+                            if (status === "error") return "icons/error_red.svg";
+                            return "icons/check_white.svg";
+                        } else {
+                            if (status === "sending") return "icons/hourglass_muted.svg";
+                            if (status === "sent") return "icons/check_muted.svg";
+                            if (status === "read") return "icons/done_all_primary.svg";
+                            if (status === "error") return "icons/error_red.svg";
+                            return "icons/check_muted.svg";
+                        }
+                    }
+                    sourceSize: Qt.size(14, 14)
+                }
             }
         }
         

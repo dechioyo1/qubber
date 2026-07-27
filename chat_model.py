@@ -6,10 +6,11 @@ class ChatModel(QAbstractListModel):
     TimestampRole = Qt.ItemDataRole.UserRole + 3
     IsMeRole = Qt.ItemDataRole.UserRole + 4
     MsgIdRole = Qt.ItemDataRole.UserRole + 5
+    StatusRole = Qt.ItemDataRole.UserRole + 6
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._messages = []  # list of dicts: {'sender': ..., 'body': ..., 'timestamp': ..., 'isMe': ...}
+        self._messages = []  # list of dicts: {'sender': ..., 'body': ..., 'timestamp': ..., 'isMe': ..., 'status': ...}
 
     def roleNames(self):
         return {
@@ -17,7 +18,8 @@ class ChatModel(QAbstractListModel):
             self.BodyRole: b"body",
             self.TimestampRole: b"timestamp",
             self.IsMeRole: b"isMe",
-            self.MsgIdRole: b"msgId"
+            self.MsgIdRole: b"msgId",
+            self.StatusRole: b"status"
         }
 
     def rowCount(self, parent=QModelIndex()):
@@ -40,6 +42,8 @@ class ChatModel(QAbstractListModel):
             return msg['isMe']
         elif role == self.MsgIdRole:
             return msg.get('msgId')
+        elif role == self.StatusRole:
+            return msg.get('status', 'sent')
         return None
 
     def set_messages(self, messages):
@@ -48,7 +52,7 @@ class ChatModel(QAbstractListModel):
         self._messages = list(messages)
         self.endResetModel()
 
-    def add_message(self, sender, body, timestamp, is_me, msg_id=None):
+    def add_message(self, sender, body, timestamp, is_me, msg_id=None, status='sent'):
         """Append a single message to the active chat list."""
         self.beginInsertRows(QModelIndex(), len(self._messages), len(self._messages))
         self._messages.append({
@@ -56,9 +60,19 @@ class ChatModel(QAbstractListModel):
             'sender': sender,
             'body': body,
             'timestamp': timestamp,
-            'isMe': is_me
+            'isMe': is_me,
+            'status': status
         })
         self.endInsertRows()
+
+    def update_message_status(self, msg_id, status):
+        """Update the status of a message with a specific database ID."""
+        for idx, msg in enumerate(self._messages):
+            if msg.get('msgId') == msg_id:
+                msg['status'] = status
+                self.dataChanged.emit(self.index(idx), self.index(idx), [self.StatusRole])
+                return True
+        return False
 
     def remove_message(self, row):
         """Remove a message at a specific row index."""

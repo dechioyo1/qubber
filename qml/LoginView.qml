@@ -8,18 +8,6 @@ Item {
     
     property bool showAdvanced: false
 
-    // Background gradient overlay
-    Rectangle {
-        anchors.fill: parent
-        color: "transparent"
-        gradient: Gradient {
-            GradientStop { position: 0.0; color: "#1e1b4b" } // indigo dark tint
-            GradientStop { position: 0.4; color: "transparent" }
-            GradientStop { position: 1.0; color: "#000000" }
-        }
-        opacity: 0.4
-    }
-
     ColumnLayout {
         anchors.centerIn: parent
         width: 440
@@ -33,12 +21,9 @@ Item {
             Rectangle {
                 width: 72
                 height: 72
-                radius: 18
+                radius: 2
                 Layout.alignment: Qt.AlignHCenter
-                gradient: Gradient {
-                    GradientStop { position: 0.0; color: window.colPrimary }
-                    GradientStop { position: 1.0; color: window.colAccent }
-                }
+                color: window.colPrimary
                 
                 Image {
                     anchors.centerIn: parent
@@ -79,8 +64,8 @@ Item {
         Rectangle {
             Layout.fillWidth: true
             implicitHeight: formLayout.implicitHeight + 48
-            radius: 24
-            color: "#1e293b95" // slate-800 with transparency
+            radius: 2
+            color: window.colCard
             border.color: window.colBorder
             border.width: 1
             
@@ -97,7 +82,7 @@ Item {
                     color: "#ef444415"
                     border.color: "#f87171"
                     border.width: 1
-                    radius: 10
+                    radius: 2
                     visible: statusLabel.text !== "Disconnected" && statusLabel.text !== ""
                     
                     RowLayout {
@@ -164,7 +149,7 @@ Item {
                             color: jidInput.activeFocus ? "#0b0f19" : window.colInputBg
                             border.color: jidInput.activeFocus ? window.colPrimary : window.colBorder
                             border.width: 1.5
-                            radius: 10
+                            radius: 2
                             Behavior on border.color { ColorAnimation { duration: 150 } }
                         }
                     }
@@ -200,7 +185,7 @@ Item {
                             color: passwordInput.activeFocus ? "#0b0f19" : window.colInputBg
                             border.color: passwordInput.activeFocus ? window.colPrimary : window.colBorder
                             border.width: 1.5
-                            radius: 10
+                            radius: 2
                             Behavior on border.color { ColorAnimation { duration: 150 } }
                         }
                     }
@@ -215,7 +200,7 @@ Item {
                     indicator: Rectangle {
                         implicitWidth: 18
                         implicitHeight: 18
-                        radius: 4
+                        radius: 2
                         color: rememberMeCheckbox.checked ? "transparent" : window.colInputBg
                         border.color: rememberMeCheckbox.checked ? window.colPrimary : window.colBorder
                         border.width: 1.5
@@ -291,7 +276,7 @@ Item {
                                     color: hostInput.activeFocus ? "#0b0f19" : window.colInputBg
                                     border.color: hostInput.activeFocus ? window.colPrimary : window.colBorder
                                     border.width: 1
-                                    radius: 8
+                                    radius: 2
                                 }
                             }
                         }
@@ -322,7 +307,7 @@ Item {
                                     color: portInput.activeFocus ? "#0b0f19" : window.colInputBg
                                     border.color: portInput.activeFocus ? window.colPrimary : window.colBorder
                                     border.width: 1
-                                    radius: 8
+                                    radius: 2
                                 }
                             }
                         }
@@ -346,11 +331,8 @@ Item {
                     }
                     
                     background: Rectangle {
-                        radius: 10
-                        gradient: Gradient {
-                            GradientStop { position: 0.0; color: loginButton.down ? window.colPrimaryDark : window.colPrimary }
-                            GradientStop { position: 1.0; color: loginButton.down ? window.colPrimary : window.colAccent }
-                        }
+                        radius: 2
+                        color: loginButton.down ? window.colPrimaryDark : window.colPrimary
                         border.color: window.colBorder
                         border.width: loginButton.hovered ? 1 : 0
                         opacity: loginButton.enabled ? 1.0 : 0.6

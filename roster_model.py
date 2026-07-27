@@ -6,10 +6,14 @@ class RosterModel(QAbstractListModel):
     StatusRole = Qt.ItemDataRole.UserRole + 3
     StatusMessageRole = Qt.ItemDataRole.UserRole + 4
     UnreadCountRole = Qt.ItemDataRole.UserRole + 5
+    LastMessageRole = Qt.ItemDataRole.UserRole + 6
+    LastMessageTimeRole = Qt.ItemDataRole.UserRole + 7
+    LastMessageIsMeRole = Qt.ItemDataRole.UserRole + 8
+    LastMessageStatusRole = Qt.ItemDataRole.UserRole + 9
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._contacts = []  # list of dicts: {'jid': ..., 'name': ..., 'status': ..., 'statusMessage': ..., 'unreadCount': ...}
+        self._contacts = []  # list of dicts: {'jid': ..., 'name': ..., 'status': ..., 'statusMessage': ..., 'unreadCount': ..., 'lastMessage': ..., 'lastMessageTime': ..., 'lastMessageIsMe': ..., 'lastMessageStatus': ...}
 
     def roleNames(self):
         return {
@@ -17,7 +21,11 @@ class RosterModel(QAbstractListModel):
             self.NameRole: b"name",
             self.StatusRole: b"status",
             self.StatusMessageRole: b"statusMessage",
-            self.UnreadCountRole: b"unreadCount"
+            self.UnreadCountRole: b"unreadCount",
+            self.LastMessageRole: b"lastMessage",
+            self.LastMessageTimeRole: b"lastMessageTime",
+            self.LastMessageIsMeRole: b"lastMessageIsMe",
+            self.LastMessageStatusRole: b"lastMessageStatus"
         }
 
     def rowCount(self, parent=QModelIndex()):
@@ -40,6 +48,14 @@ class RosterModel(QAbstractListModel):
             return contact['statusMessage']
         elif role == self.UnreadCountRole:
             return contact['unreadCount']
+        elif role == self.LastMessageRole:
+            return contact.get('lastMessage', '')
+        elif role == self.LastMessageTimeRole:
+            return contact.get('lastMessageTime', '')
+        elif role == self.LastMessageIsMeRole:
+            return contact.get('lastMessageIsMe', False)
+        elif role == self.LastMessageStatusRole:
+            return contact.get('lastMessageStatus', 'sent')
         return None
 
     def set_contacts(self, contacts):
@@ -62,12 +78,12 @@ class RosterModel(QAbstractListModel):
         # If not found, add it
         self.add_contact(jid, **kwargs)
 
-    def add_contact(self, jid, name=None, status='offline', statusMessage='', unreadCount=0):
+    def add_contact(self, jid, name=None, status='offline', statusMessage='', unreadCount=0, lastMessage='', lastMessageTime='', lastMessageIsMe=False, lastMessageStatus='sent'):
         """Add a contact if not already present."""
         for contact in self._contacts:
             if contact['jid'] == jid:
                 # Update if already exists
-                self.update_contact(jid, name=name, status=status, statusMessage=statusMessage)
+                self.update_contact(jid, name=name, status=status, statusMessage=statusMessage, lastMessage=lastMessage, lastMessageTime=lastMessageTime, lastMessageIsMe=lastMessageIsMe, lastMessageStatus=lastMessageStatus)
                 return
         
         self.beginInsertRows(QModelIndex(), len(self._contacts), len(self._contacts))
@@ -76,7 +92,11 @@ class RosterModel(QAbstractListModel):
             'name': name or jid.split('@')[0],
             'status': status,
             'statusMessage': statusMessage,
-            'unreadCount': unreadCount
+            'unreadCount': unreadCount,
+            'lastMessage': lastMessage,
+            'lastMessageTime': lastMessageTime,
+            'lastMessageIsMe': lastMessageIsMe,
+            'lastMessageStatus': lastMessageStatus
         })
         self.endInsertRows()
 

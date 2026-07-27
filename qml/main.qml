@@ -12,17 +12,31 @@ ApplicationWindow {
     title: "Qubber - XMPP Client"
     flags: Qt.Window | Qt.FramelessWindowHint
     
-    // Theme palette
-    readonly property color colPrimary: "#6366f1"
-    readonly property color colPrimaryDark: "#4f46e5"
-    readonly property color colAccent: "#8b5cf6"
-    readonly property color colBg: "#0f172a"
-    readonly property color colCard: "#1e293b"
-    readonly property color colText: "#f8fafc"
-    readonly property color colMuted: "#94a3b8"
-    readonly property color colBorder: "#334155"
-    readonly property color colInputBg: "#0f172a"
+    color: window.colBg
     
+    readonly property bool isNormalWindow: window.visibility !== Window.Maximized && window.visibility !== Window.FullScreen
+
+    // Theme palette bound dynamically to themeManager
+    readonly property color colPrimary: themeManager.colPrimary
+    readonly property color colPrimaryDark: themeManager.colPrimaryDark
+    readonly property color colAccent: themeManager.colAccent
+    readonly property color colBg: themeManager.colBg
+    readonly property color colCard: themeManager.colCard
+    readonly property color colText: themeManager.colText
+    readonly property color colMuted: themeManager.colMuted
+    readonly property color colBorder: themeManager.colBorder
+    readonly property color colInputBg: themeManager.colInputBg
+    readonly property color topBarBg: themeManager.topBarBg
+    readonly property color topBarFg: themeManager.topBarFg
+    readonly property color sidebarBg: themeManager.sidebarBg
+    readonly property color sidebarHeaderBg: themeManager.sidebarHeaderBg
+    readonly property color sidebarBgOver: themeManager.sidebarBgOver
+    readonly property color sidebarBgActive: themeManager.sidebarBgActive
+    readonly property color msgInBg: themeManager.msgInBg
+    readonly property color msgInText: themeManager.msgInText
+    readonly property color msgOutBg: themeManager.msgOutBg
+    readonly property color msgOutText: themeManager.msgOutText
+
     // Presence colors
     readonly property color colOnline: "#10b981"
     readonly property color colAway: "#f59e0b"
@@ -31,12 +45,6 @@ ApplicationWindow {
 
     background: Rectangle {
         color: window.colBg
-        
-        // Premium subtle background gradient
-        gradient: Gradient {
-            GradientStop { position: 0.0; color: "#16152e" }
-            GradientStop { position: 1.0; color: "#0b0c16" }
-        }
     }
     
     // Listen to global backend connection changes
@@ -68,7 +76,7 @@ ApplicationWindow {
             id: titleBar
             Layout.fillWidth: true
             height: 34
-            color: "#111322"
+            color: window.topBarBg
             
             Rectangle {
                 anchors.left: parent.left
@@ -117,7 +125,7 @@ ApplicationWindow {
                         }
                         Text {
                             text: "Qubber"
-                            color: window.colText
+                            color: qubberBtn.hovered ? window.colText : window.topBarFg
                             font.pixelSize: 13
                             font.bold: true
                         }
@@ -131,14 +139,14 @@ ApplicationWindow {
                         id: qubberMenu
                         y: parent.height + 4
                         x: 0
-                        width: 140
+                        width: 160
                         padding: 6
-                        modal: true
+                        modal: false
                         focus: true
                         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
                         
                         background: Rectangle {
-                            color: "#1e293b"
+                            color: window.colCard
                             border.color: window.colBorder
                             radius: 8
                         }
@@ -149,12 +157,12 @@ ApplicationWindow {
                             Button {
                                 id: aboutMenuBtn
                                 Layout.fillWidth: true
-                                implicitHeight: 28
+                                implicitHeight: 36
                                 
                                 contentItem: Text {
                                     text: "About Qubber"
                                     color: aboutMenuBtn.hovered ? "white" : window.colText
-                                    font.pixelSize: 12
+                                    font.pixelSize: 14
                                     verticalAlignment: Text.AlignVCenter
                                     leftPadding: 8
                                 }
@@ -179,12 +187,12 @@ ApplicationWindow {
                             Button {
                                 id: exitMenuBtn
                                 Layout.fillWidth: true
-                                implicitHeight: 28
+                                implicitHeight: 36
                                 
                                 contentItem: Text {
                                     text: "Exit"
                                     color: exitMenuBtn.hovered ? "white" : window.colText
-                                    font.pixelSize: 12
+                                    font.pixelSize: 14
                                     verticalAlignment: Text.AlignVCenter
                                     leftPadding: 8
                                 }
@@ -215,7 +223,7 @@ ApplicationWindow {
                         
                         contentItem: Text {
                             text: "Contacts"
-                            color: contactsBtn.hovered ? "white" : window.colText
+                            color: contactsBtn.hovered ? window.colText : window.topBarFg
                             font.pixelSize: 13
                             verticalAlignment: Text.AlignVCenter
                         }
@@ -233,14 +241,14 @@ ApplicationWindow {
                             id: contactsMenu
                             y: parent.height + 4
                             x: 0
-                            width: 140
+                            width: 160
                             padding: 6
-                            modal: true
+                            modal: false
                             focus: true
                             closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
                             
                             background: Rectangle {
-                                color: "#1e293b"
+                                color: window.colCard
                                 border.color: window.colBorder
                                 radius: 8
                             }
@@ -251,12 +259,12 @@ ApplicationWindow {
                                 Button {
                                     id: listContactsMenuBtn
                                     Layout.fillWidth: true
-                                    implicitHeight: 28
+                                    implicitHeight: 36
                                     
                                     contentItem: Text {
                                         text: "List Contacts"
                                         color: listContactsMenuBtn.hovered ? "white" : window.colText
-                                        font.pixelSize: 12
+                                        font.pixelSize: 14
                                         verticalAlignment: Text.AlignVCenter
                                         leftPadding: 8
                                     }
@@ -275,12 +283,12 @@ ApplicationWindow {
                                 Button {
                                     id: addContactMenuBtn
                                     Layout.fillWidth: true
-                                    implicitHeight: 28
+                                    implicitHeight: 36
                                     
                                     contentItem: Text {
                                         text: "Add Contact..."
                                         color: addContactMenuBtn.hovered ? "white" : window.colText
-                                        font.pixelSize: 12
+                                        font.pixelSize: 14
                                         verticalAlignment: Text.AlignVCenter
                                         leftPadding: 8
                                     }
@@ -305,7 +313,7 @@ ApplicationWindow {
                         
                         contentItem: Text {
                             text: xmppBackend.myJid !== "" ? xmppBackend.myJid : "Account"
-                            color: accountBtn.hovered ? "white" : window.colText
+                            color: accountBtn.hovered ? window.colText : window.topBarFg
                             font.pixelSize: 13
                             verticalAlignment: Text.AlignVCenter
                         }
@@ -323,14 +331,14 @@ ApplicationWindow {
                             id: accountMenu
                             y: parent.height + 4
                             x: 0
-                            width: 150
+                            width: 170
                             padding: 6
-                            modal: true
+                            modal: false
                             focus: true
                             closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
                             
                             background: Rectangle {
-                                color: "#1e293b"
+                                color: window.colCard
                                 border.color: window.colBorder
                                 radius: 8
                             }
@@ -341,12 +349,12 @@ ApplicationWindow {
                                 Button {
                                     id: changeStatusMenuBtn
                                     Layout.fillWidth: true
-                                    implicitHeight: 28
+                                    implicitHeight: 36
                                     
                                     contentItem: Text {
                                         text: "Change Status..."
                                         color: changeStatusMenuBtn.hovered ? "white" : window.colText
-                                        font.pixelSize: 12
+                                        font.pixelSize: 14
                                         verticalAlignment: Text.AlignVCenter
                                         leftPadding: 8
                                     }
@@ -365,12 +373,12 @@ ApplicationWindow {
                                 Button {
                                     id: logoutMenuBtn
                                     Layout.fillWidth: true
-                                    implicitHeight: 28
+                                    implicitHeight: 36
                                     
                                     contentItem: Text {
                                         text: "Logout"
                                         color: logoutMenuBtn.hovered ? "white" : window.colText
-                                        font.pixelSize: 12
+                                        font.pixelSize: 14
                                         verticalAlignment: Text.AlignVCenter
                                         leftPadding: 8
                                     }
@@ -406,7 +414,7 @@ ApplicationWindow {
                         
                         contentItem: Text {
                             text: "—"
-                            color: window.colText
+                            color: minBtn.hovered ? window.colText : window.topBarFg
                             font.pixelSize: 11
                             horizontalAlignment: Text.AlignHCenter
                             verticalAlignment: Text.AlignVCenter
@@ -426,7 +434,7 @@ ApplicationWindow {
                         
                         contentItem: Text {
                             text: window.visibility === Window.Maximized ? "⧉" : "▢"
-                            color: window.colText
+                            color: maxBtn.hovered ? window.colText : window.topBarFg
                             font.pixelSize: 14
                             horizontalAlignment: Text.AlignHCenter
                             verticalAlignment: Text.AlignVCenter
@@ -452,7 +460,7 @@ ApplicationWindow {
                         
                         contentItem: Text {
                             text: "✕"
-                            color: closeBtn.hovered ? "white" : window.colText
+                            color: closeBtn.hovered ? "white" : window.topBarFg
                             font.pixelSize: 12
                             horizontalAlignment: Text.AlignHCenter
                             verticalAlignment: Text.AlignVCenter
@@ -486,7 +494,6 @@ ApplicationWindow {
                 Behavior on opacity { NumberAnimation { duration: 150 } }
             }
         }
-    }
     
     // Frameless window resize borders
     MouseArea {
@@ -567,50 +574,33 @@ ApplicationWindow {
         anchors.centerIn: parent
         modal: true
         focus: true
+        padding: 24
         
         background: Rectangle {
             color: window.colCard
             border.color: window.colBorder
             border.width: 1
-            radius: 16
-        }
-        
-        header: Rectangle {
-            color: "transparent"
-            height: 50
-            
-            RowLayout {
-                anchors.fill: parent
-                anchors.leftMargin: 20
-                anchors.rightMargin: 20
-                
-                Text {
-                    text: "About Qubber"
-                    color: window.colText
-                    font.pixelSize: 15
-                    font.bold: true
-                }
-            }
+            radius: 2
         }
         
         contentItem: ColumnLayout {
-            spacing: 12
-            width: 320
-            
-            Image {
-                Layout.alignment: Qt.AlignHCenter
-                width: 60
-                height: 60
-                source: "../logo.svg"
-                sourceSize: Qt.size(60, 60)
-            }
+            spacing: 14
+            width: 280
             
             Text {
-                text: "Qubber client"
+                text: "About Qubber"
                 color: window.colText
                 font.pixelSize: 16
                 font.bold: true
+                Layout.alignment: Qt.AlignLeft
+            }
+            
+            Image {
                 Layout.alignment: Qt.AlignHCenter
+                width: 64
+                height: 64
+                source: "../logo.svg"
+                sourceSize: Qt.size(64, 64)
             }
             
             Text {
@@ -623,35 +613,31 @@ ApplicationWindow {
             Text {
                 text: "A clean, modern XMPP client built with Qt6 & Python."
                 color: window.colText
-                font.pixelSize: 12
+                font.pixelSize: 13
                 horizontalAlignment: Text.AlignHCenter
                 Layout.alignment: Qt.AlignHCenter
                 wrapMode: Text.WordWrap
                 Layout.fillWidth: true
             }
-        }
-        
-        footer: Rectangle {
-            color: "transparent"
-            height: 54
             
             Button {
-                id: okBtn
-                anchors.centerIn: parent
-                width: 100
-                implicitHeight: 32
+                id: aboutOkBtn
+                Layout.alignment: Qt.AlignHCenter
+                implicitWidth: 100
+                implicitHeight: 34
                 
                 contentItem: Text {
                     text: "OK"
                     color: "white"
+                    font.bold: true
+                    font.pixelSize: 13
                     horizontalAlignment: Text.AlignHCenter
                     verticalAlignment: Text.AlignVCenter
-                    font.bold: true
                 }
                 
                 background: Rectangle {
-                    color: okBtn.down ? window.colPrimaryDark : (okBtn.hovered ? window.colAccent : window.colPrimary)
-                    radius: 8
+                    color: aboutOkBtn.down ? window.colPrimaryDark : (aboutOkBtn.hovered ? window.colAccent : window.colPrimary)
+                    radius: 2
                 }
                 
                 onClicked: aboutDialog.close()
@@ -1005,4 +991,5 @@ ApplicationWindow {
     SubscriptionDialog {
         id: subscriptionDialog
     }
+}
 }

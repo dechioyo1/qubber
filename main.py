@@ -2,6 +2,7 @@ import sys
 import logging
 import asyncio
 import os
+import signal
 from PySide6.QtCore import QTimer
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
@@ -11,6 +12,7 @@ from qasync import QEventLoop
 from roster_model import RosterModel
 from chat_model import ChatModel
 from backend import XmppBackend
+from theme_manager import ThemeManager
 
 def main():
     # Setup logging to see XMPP transactions
@@ -29,7 +31,16 @@ def main():
     loop = QEventLoop(app)
     asyncio.set_event_loop(loop)
     
-    # Instantiate models and backend
+    # Enable clean exit on Ctrl+C (SIGINT)
+    signal.signal(signal.SIGINT, lambda *args: app.quit())
+    
+    # A dummy timer is required to let Python run periodically and catch signals
+    sigint_timer = QTimer()
+    sigint_timer.start(200)
+    sigint_timer.timeout.connect(lambda: None)
+    
+    # Instantiate models, backend and theme manager
+    theme_manager = ThemeManager()
     roster_model = RosterModel()
     chats_list_model = RosterModel()
     chat_model = ChatModel()
@@ -40,6 +51,7 @@ def main():
     
     # Set context properties
     context = engine.rootContext()
+    context.setContextProperty("themeManager", theme_manager)
     context.setContextProperty("xmppBackend", backend)
     context.setContextProperty("rosterModel", roster_model)
     context.setContextProperty("chatsListModel", chats_list_model)
