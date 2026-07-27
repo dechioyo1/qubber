@@ -9,6 +9,7 @@ Item {
     property string selfStatus: "available"
     property string hoveredStatus: ""
     property string filterText: searchInput.text.toLowerCase().trim()
+    property bool sidebarCollapsed: false
 
     SplitView {
         anchors.fill: parent
@@ -21,6 +22,8 @@ Item {
         
         // Sidebar (Contacts & Settings)
         Rectangle {
+            id: sidebar
+            visible: !root.sidebarCollapsed
             SplitView.preferredWidth: 320
             SplitView.minimumWidth: 260
             SplitView.maximumWidth: 380
@@ -39,29 +42,79 @@ Item {
                 anchors.fill: parent
                 spacing: 0
                 
-                // Search Input Field
+                // Search Input Field & Collapse Button
                 Rectangle {
                     Layout.fillWidth: true
-                    height: 52
-                    color: "transparent"
+                    height: 56
+                    color: "#11132240"
                     
-                    TextField {
-                        id: searchInput
+                    Rectangle {
+                        anchors.bottom: parent.bottom
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        height: 1
+                        color: window.colBorder
+                    }
+                    
+                    RowLayout {
                         anchors.fill: parent
-                        anchors.margins: 10
-                        placeholderText: "Search..."
-                        placeholderTextColor: "#4b5563"
-                        color: window.colText
-                        font.pixelSize: 13
-                        selectByMouse: true
-                        leftPadding: 10
-                        rightPadding: 10
+                        anchors.leftMargin: 12
+                        anchors.rightMargin: 12
+                        spacing: 8
                         
-                        background: Rectangle {
-                            color: searchInput.activeFocus ? "#0b0f19" : window.colInputBg
-                            border.color: searchInput.activeFocus ? window.colPrimary : window.colBorder
-                            border.width: 1
-                            radius: 8
+                        TextField {
+                            id: searchInput
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: 36
+                            placeholderText: "Search..."
+                            placeholderTextColor: "#4b5563"
+                            color: window.colText
+                            font.pixelSize: 13
+                            selectByMouse: true
+                            leftPadding: 32
+                            rightPadding: 10
+                            verticalAlignment: Text.AlignVCenter
+                            
+                            background: Rectangle {
+                                color: searchInput.activeFocus ? "#0b0f19" : window.colInputBg
+                                border.color: searchInput.activeFocus ? window.colPrimary : window.colBorder
+                                border.width: 1
+                                radius: 8
+                            }
+
+                            Image {
+                                anchors.left: parent.left
+                                anchors.leftMargin: 10
+                                anchors.verticalCenter: parent.verticalCenter
+                                width: 16
+                                height: 16
+                                source: "icons/search_muted.svg"
+                                sourceSize: Qt.size(16, 16)
+                                opacity: 0.6
+                            }
+                        }
+                        
+                        Button {
+                            id: collapseSidebarBtn
+                            implicitWidth: 32
+                            implicitHeight: 32
+                            
+                            contentItem: Image {
+                                anchors.centerIn: parent
+                                width: 20
+                                height: 20
+                                source: collapseSidebarBtn.hovered ? "icons/chevron_left_white.svg" : "icons/chevron_left_muted.svg"
+                                sourceSize: Qt.size(20, 20)
+                            }
+                            
+                            background: Rectangle {
+                                color: collapseSidebarBtn.hovered ? "#33415520" : "transparent"
+                                radius: 16
+                            }
+                            
+                            onClicked: {
+                                root.sidebarCollapsed = true
+                            }
                         }
                     }
                 }
@@ -106,10 +159,12 @@ Item {
                     color: "#1e293b"
                     Layout.alignment: Qt.AlignHCenter
                     
-                    Text {
+                    Image {
                         anchors.centerIn: parent
-                        text: "💬"
-                        font.pixelSize: 36
+                        width: 36
+                        height: 36
+                        source: "icons/chat_muted.svg"
+                        sourceSize: Qt.size(36, 36)
                     }
                 }
                 
@@ -134,11 +189,10 @@ Item {
                 anchors.fill: parent
                 visible: xmppBackend.activeChatJid !== ""
                 spacing: 0
-                
-                // Active Contact Header
+                                // Active Contact Header
                 Rectangle {
                     Layout.fillWidth: true
-                    height: 60
+                    height: 56
                     color: "#11132240"
                     
                     Rectangle {
@@ -154,6 +208,30 @@ Item {
                         anchors.leftMargin: 20
                         anchors.rightMargin: 20
                         spacing: 12
+                        
+                        Button {
+                            id: expandSidebarBtn
+                            visible: root.sidebarCollapsed
+                            implicitWidth: 32
+                            implicitHeight: 32
+                            
+                            contentItem: Image {
+                                anchors.centerIn: parent
+                                width: 20
+                                height: 20
+                                source: expandSidebarBtn.hovered ? "icons/menu_white.svg" : "icons/menu_muted.svg"
+                                sourceSize: Qt.size(20, 20)
+                            }
+                            
+                            background: Rectangle {
+                                color: expandSidebarBtn.hovered ? "#33415520" : "transparent"
+                                radius: 16
+                            }
+                            
+                            onClicked: {
+                                root.sidebarCollapsed = false
+                            }
+                        }
                         
                         Text {
                             text: xmppBackend.activeChatJid
@@ -175,13 +253,17 @@ Item {
                     model: chatModel
                     delegate: MessageDelegate {}
                     
+                    // Align messages to the bottom when history is short
+                    topMargin: Math.max(0, height - contentHeight)
+                    Behavior on topMargin { NumberAnimation { duration: 150; easing.type: Easing.OutQuad } }
+                    
                     ScrollBar.vertical: ScrollBar {
                         policy: ScrollBar.AsNeeded
                     }
                     
-                    // Auto-scroll on new message
+                    // Auto-scroll on new message (Qt.callLater ensures new delegates are loaded/positioned before scrolling)
                     onCountChanged: {
-                        chatHistoryView.positionViewAtEnd()
+                        Qt.callLater(chatHistoryView.positionViewAtEnd)
                     }
                 }
                 
@@ -204,6 +286,144 @@ Item {
                         anchors.leftMargin: 16
                         anchors.rightMargin: 16
                         spacing: 12
+                        
+                        Button {
+                            id: attachBtn
+                            implicitWidth: 32
+                            implicitHeight: 32
+                            
+                            contentItem: Image {
+                                anchors.centerIn: parent
+                                width: 20
+                                height: 20
+                                source: attachBtn.hovered ? "icons/attach_file_white.svg" : "icons/attach_file_muted.svg"
+                                sourceSize: Qt.size(20, 20)
+                            }
+                            
+                            background: Rectangle {
+                                color: attachBtn.hovered ? "#33415520" : "transparent"
+                                radius: 16
+                            }
+                            
+                            onClicked: attachMenu.open()
+                            
+                            Popup {
+                                id: attachMenu
+                                y: -attachMenu.height - 4
+                                x: 0
+                                width: 120
+                                padding: 6
+                                modal: true
+                                focus: true
+                                closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+                                
+                                background: Rectangle {
+                                    color: "#1e293b"
+                                    border.color: window.colBorder
+                                    radius: 8
+                                }
+                                
+                                contentItem: ColumnLayout {
+                                    spacing: 4
+                                    
+                                    Button {
+                                        id: attachImageBtn
+                                        Layout.fillWidth: true
+                                        implicitHeight: 28
+                                        
+                                        contentItem: RowLayout {
+                                            spacing: 8
+                                            Image {
+                                                Layout.leftMargin: 8
+                                                width: 16
+                                                height: 16
+                                                source: attachImageBtn.hovered ? "icons/image_white.svg" : "icons/image_muted.svg"
+                                                sourceSize: Qt.size(16, 16)
+                                            }
+                                            Text {
+                                                text: "Image"
+                                                color: attachImageBtn.hovered ? "white" : window.colText
+                                                font.pixelSize: 12
+                                                verticalAlignment: Text.AlignVCenter
+                                            }
+                                        }
+                                        
+                                        background: Rectangle {
+                                            color: attachImageBtn.hovered ? window.colPrimary : "transparent"
+                                            radius: 6
+                                        }
+                                        
+                                        onClicked: {
+                                            attachMenu.close()
+                                        }
+                                    }
+                                    
+                                    Button {
+                                        id: attachFileBtn
+                                        Layout.fillWidth: true
+                                        implicitHeight: 28
+                                        
+                                        contentItem: RowLayout {
+                                            spacing: 8
+                                            Image {
+                                                Layout.leftMargin: 8
+                                                width: 16
+                                                height: 16
+                                                source: attachFileBtn.hovered ? "icons/description_white.svg" : "icons/description_muted.svg"
+                                                sourceSize: Qt.size(16, 16)
+                                            }
+                                            Text {
+                                                text: "File"
+                                                color: attachFileBtn.hovered ? "white" : window.colText
+                                                font.pixelSize: 12
+                                                verticalAlignment: Text.AlignVCenter
+                                            }
+                                        }
+                                        
+                                        background: Rectangle {
+                                            color: attachFileBtn.hovered ? window.colPrimary : "transparent"
+                                            radius: 6
+                                        }
+                                        
+                                        onClicked: {
+                                            attachMenu.close()
+                                        }
+                                    }
+                                    
+                                    Button {
+                                        id: attachLocationBtn
+                                        Layout.fillWidth: true
+                                        implicitHeight: 28
+                                        
+                                        contentItem: RowLayout {
+                                            spacing: 8
+                                            Image {
+                                                Layout.leftMargin: 8
+                                                width: 16
+                                                height: 16
+                                                source: attachLocationBtn.hovered ? "icons/location_on_white.svg" : "icons/location_on_muted.svg"
+                                                sourceSize: Qt.size(16, 16)
+                                            }
+                                            Text {
+                                                text: "Location"
+                                                color: attachLocationBtn.hovered ? "white" : window.colText
+                                                font.pixelSize: 12
+                                                verticalAlignment: Text.AlignVCenter
+                                            }
+                                        }
+                                        
+                                        background: Rectangle {
+                                            color: attachLocationBtn.hovered ? window.colPrimary : "transparent"
+                                            radius: 6
+                                        }
+                                        
+                                        onClicked: {
+                                            attachMenu.close()
+                                        }
+                                    }
+                                }
+                            }
+                        }
                         
                         TextField {
                             id: messageInput
@@ -234,13 +454,12 @@ Item {
                             implicitHeight: 32
                             visible: messageInput.text.trim() !== ""
                             
-                            contentItem: Text {
-                                text: "➔"
-                                color: window.colPrimary
-                                font.pixelSize: 14
-                                font.bold: true
-                                horizontalAlignment: Text.AlignHCenter
-                                verticalAlignment: Text.AlignVCenter
+                            contentItem: Image {
+                                anchors.centerIn: parent
+                                width: 16
+                                height: 16
+                                source: "icons/send_primary.svg"
+                                sourceSize: Qt.size(16, 16)
                             }
                             
                             background: Rectangle {

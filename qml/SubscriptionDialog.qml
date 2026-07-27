@@ -28,28 +28,21 @@ Dialog {
         }
     }
     
-    header: Rectangle {
-        color: "transparent"
-        height: 54
-        
-        RowLayout {
-            anchors.fill: parent
-            anchors.leftMargin: 20
-            anchors.rightMargin: 20
-            
-            Text {
-                text: "Incoming Contact Request"
-                color: window.colText
-                font.pixelSize: 16
-                font.bold: true
-            }
-        }
-    }
-    
+    // Consolidate header, content, and footer into contentItem ColumnLayout to prevent any layout overlapping
     contentItem: ColumnLayout {
-        spacing: 12
+        spacing: 16
         width: 360
         
+        // Header
+        Text {
+            text: "Incoming Contact Request"
+            color: window.colText
+            font.pixelSize: 16
+            font.bold: true
+            Layout.fillWidth: true
+        }
+        
+        // Requester details
         Text {
             text: "The user <b>" + dialog.requesterJid + "</b> wants to see your online status."
             color: window.colText
@@ -59,6 +52,7 @@ Dialog {
             textFormat: Text.RichText
         }
         
+        // Detailed information
         Text {
             text: "Approving will share your presence status. You will also request to subscribe to their status to establish mutual chat communication."
             color: window.colMuted
@@ -66,16 +60,14 @@ Dialog {
             wrapMode: Text.Wrap
             Layout.fillWidth: true
         }
-    }
-    
-    footer: Rectangle {
-        color: "transparent"
-        height: 64
         
+        Item {
+            implicitHeight: 8
+        }
+        
+        // Buttons
         RowLayout {
-            anchors.fill: parent
-            anchors.leftMargin: 20
-            anchors.rightMargin: 20
+            Layout.fillWidth: true
             spacing: 12
             
             Button {
@@ -96,7 +88,6 @@ Dialog {
                     border.color: window.colDnd
                     border.width: 1
                     radius: 8
-                    Behavior on color { ColorAnimation { duration: 100 } }
                 }
                 
                 onClicked: {
@@ -121,7 +112,6 @@ Dialog {
                 background: Rectangle {
                     color: approveBtn.down ? window.colPrimaryDark : (approveBtn.hovered ? window.colAccent : window.colPrimary)
                     radius: 8
-                    Behavior on color { ColorAnimation { duration: 100 } }
                 }
                 
                 onClicked: {
