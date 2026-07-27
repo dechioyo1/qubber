@@ -185,20 +185,24 @@ Item {
                     }
                 }
                 
-                // Text Message Input Bar
-                Rectangle {
                 // Message Input Bar
                 Rectangle {
                     Layout.fillWidth: true
-                    height: 64
-                    color: "transparent"
+                    height: 46
+                    color: "#16192b"
+                    
+                    Rectangle {
+                        anchors.top: parent.top
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        height: 1
+                        color: window.colBorder
+                    }
                     
                     RowLayout {
                         anchors.fill: parent
                         anchors.leftMargin: 16
                         anchors.rightMargin: 16
-                        anchors.bottomMargin: 12
-                        anchors.topMargin: 4
                         spacing: 12
                         
                         TextField {
@@ -209,12 +213,11 @@ Item {
                             Layout.fillWidth: true
                             font.pixelSize: 14
                             selectByMouse: true
-                            leftPadding: 16
-                            rightPadding: 16
+                            leftPadding: 0
+                            rightPadding: 0
                             
                             background: Rectangle {
-                                color: messageInput.activeFocus ? "#0b0f19" : window.colInputBg
-                                radius: 18
+                                color: "transparent"
                             }
                             
                             onAccepted: {
@@ -227,8 +230,8 @@ Item {
                         
                         Button {
                             id: sendBtn
-                            implicitWidth: 36
-                            implicitHeight: 36
+                            implicitWidth: 32
+                            implicitHeight: 32
                             visible: messageInput.text.trim() !== ""
                             
                             contentItem: Text {
@@ -241,7 +244,7 @@ Item {
                             }
                             
                             background: Rectangle {
-                                radius: 18
+                                radius: 16
                                 color: sendBtn.down ? "#1d4ed815" : "transparent"
                                 border.color: window.colPrimary
                                 border.width: 1.5
