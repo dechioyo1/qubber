@@ -10,11 +10,13 @@ ApplicationWindow {
     minimumHeight: 600
     visible: true
     title: "Qubber - XMPP Client"
-    flags: Qt.Window | Qt.FramelessWindowHint
+    property bool alwaysOnTop: false
+    flags: Qt.Window | Qt.FramelessWindowHint | (alwaysOnTop ? Qt.WindowStaysOnTopHint : Qt.Widget)
     
     color: window.colBg
     
     readonly property bool isNormalWindow: window.visibility !== Window.Maximized && window.visibility !== Window.FullScreen
+    readonly property bool isMenuBarActive: qubberMenu.opened || contactsMenu.opened || accountMenu.opened
 
     // Theme palette bound dynamically to themeManager
     readonly property color colPrimary: themeManager.colPrimary
@@ -109,6 +111,7 @@ ApplicationWindow {
                 Button {
                     id: qubberBtn
                     implicitHeight: 26
+                    property bool preventOpen: false
                     
                     background: Rectangle {
                         color: qubberBtn.hovered ? "#33415530" : "transparent"
@@ -125,14 +128,224 @@ ApplicationWindow {
                         }
                         Text {
                             text: "Qubber"
-                            color: qubberBtn.hovered ? window.colText : window.topBarFg
+                            color: qubberBtn.hovered ? window.colPrimary : window.colText
                             font.pixelSize: 13
                             font.bold: true
                         }
                     }
                     
-                    onClicked: {
-                        qubberMenu.open()
+                    hoverEnabled: true
+                    onHoveredChanged: {
+                        if (hovered && window.isMenuBarActive) {
+                            contactsMenu.close()
+                            accountMenu.close()
+                            qubberMenu.open()
+                        }
+                    }
+                    
+                     MouseArea {
+                        anchors.fill: parent
+                        acceptedButtons: Qt.LeftButton | Qt.RightButton
+                        cursorShape: Qt.PointingHandCursor
+                        
+                        onClicked: (mouse) => {
+                            if (mouse.button === Qt.RightButton) {
+                                systemWindowMenu.open()
+                            } else {
+                                if (qubberMenu.opened) {
+                                    qubberMenu.close()
+                                } else if (!qubberBtn.preventOpen) {
+                                    qubberMenu.open()
+                                }
+                                qubberBtn.preventOpen = false
+                            }
+                        }
+                    }
+
+                    Popup {
+                        id: systemWindowMenu
+                        y: parent.height + 4
+                        x: 0
+                        width: 180
+                        padding: 6
+                        modal: false
+                        focus: true
+                        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+                        
+                        background: Rectangle {
+                            color: window.colCard
+                            border.color: window.colBorder
+                            radius: 8
+                        }
+                        
+                        contentItem: ColumnLayout {
+                            spacing: 4
+                            
+                            Button {
+                                id: sysRestoreBtn
+                                Layout.fillWidth: true
+                                implicitHeight: 32
+                                enabled: window.visibility === Window.Maximized
+                                
+                                contentItem: Text {
+                                    text: "Restore"
+                                    color: sysRestoreBtn.enabled ? (sysRestoreBtn.hovered ? "white" : window.colText) : window.colMuted
+                                    font.pixelSize: 13
+                                    verticalAlignment: Text.AlignVCenter
+                                    leftPadding: 8
+                                }
+                                
+                                background: Rectangle {
+                                    color: sysRestoreBtn.hovered && sysRestoreBtn.enabled ? window.colPrimary : "transparent"
+                                    radius: 6
+                                }
+                                
+                                onClicked: {
+                                    systemWindowMenu.close()
+                                    window.showNormal()
+                                }
+                            }
+                            
+                            Button {
+                                id: sysMoveBtn
+                                Layout.fillWidth: true
+                                implicitHeight: 32
+                                
+                                contentItem: Text {
+                                    text: "Move"
+                                    color: sysMoveBtn.hovered ? "white" : window.colText
+                                    font.pixelSize: 13
+                                    verticalAlignment: Text.AlignVCenter
+                                    leftPadding: 8
+                                }
+                                
+                                background: Rectangle {
+                                    color: sysMoveBtn.hovered ? window.colPrimary : "transparent"
+                                    radius: 6
+                                }
+                                
+                                onClicked: {
+                                    systemWindowMenu.close()
+                                    window.startSystemMove()
+                                }
+                            }
+                            
+                            Button {
+                                id: sysMinimizeBtn
+                                Layout.fillWidth: true
+                                implicitHeight: 32
+                                
+                                contentItem: Text {
+                                    text: "Minimize"
+                                    color: sysMinimizeBtn.hovered ? "white" : window.colText
+                                    font.pixelSize: 13
+                                    verticalAlignment: Text.AlignVCenter
+                                    leftPadding: 8
+                                }
+                                
+                                background: Rectangle {
+                                    color: sysMinimizeBtn.hovered ? window.colPrimary : "transparent"
+                                    radius: 6
+                                }
+                                
+                                onClicked: {
+                                    systemWindowMenu.close()
+                                    window.showMinimized()
+                                }
+                            }
+                            
+                            Button {
+                                id: sysMaximizeBtn
+                                Layout.fillWidth: true
+                                implicitHeight: 32
+                                enabled: window.visibility !== Window.Maximized
+                                
+                                contentItem: Text {
+                                    text: "Maximize"
+                                    color: sysMaximizeBtn.enabled ? (sysMaximizeBtn.hovered ? "white" : window.colText) : window.colMuted
+                                    font.pixelSize: 13
+                                    verticalAlignment: Text.AlignVCenter
+                                    leftPadding: 8
+                                }
+                                
+                                background: Rectangle {
+                                    color: sysMaximizeBtn.hovered && sysMaximizeBtn.enabled ? window.colPrimary : "transparent"
+                                    radius: 6
+                                }
+                                
+                                onClicked: {
+                                    systemWindowMenu.close()
+                                    window.showMaximized()
+                                }
+                            }
+                            
+                            Button {
+                                id: sysAlwaysOnTopBtn
+                                Layout.fillWidth: true
+                                implicitHeight: 32
+                                
+                                contentItem: RowLayout {
+                                    anchors.fill: parent
+                                    anchors.leftMargin: 8
+                                    anchors.rightMargin: 8
+                                    spacing: 8
+                                    Text {
+                                        text: "Always on Top"
+                                        color: sysAlwaysOnTopBtn.hovered ? "white" : window.colText
+                                        font.pixelSize: 13
+                                        Layout.fillWidth: true
+                                        verticalAlignment: Text.AlignVCenter
+                                    }
+                                    Text {
+                                        text: window.alwaysOnTop ? "✓" : ""
+                                        color: sysAlwaysOnTopBtn.hovered ? "white" : window.colPrimary
+                                        font.pixelSize: 14
+                                        font.bold: true
+                                    }
+                                }
+                                
+                                background: Rectangle {
+                                    color: sysAlwaysOnTopBtn.hovered ? window.colPrimary : "transparent"
+                                    radius: 6
+                                }
+                                
+                                onClicked: {
+                                    systemWindowMenu.close()
+                                    window.alwaysOnTop = !window.alwaysOnTop
+                                }
+                            }
+                            
+                            Rectangle {
+                                Layout.fillWidth: true
+                                height: 1
+                                color: window.colBorder
+                            }
+                            
+                            Button {
+                                id: sysCloseBtn
+                                Layout.fillWidth: true
+                                implicitHeight: 32
+                                
+                                contentItem: Text {
+                                    text: "Close"
+                                    color: sysCloseBtn.hovered ? "white" : window.colText
+                                    font.pixelSize: 13
+                                    font.bold: true
+                                    verticalAlignment: Text.AlignVCenter
+                                    leftPadding: 8
+                                }
+                                
+                                background: Rectangle {
+                                    color: sysCloseBtn.hovered ? "#ef4444" : "transparent"
+                                    radius: 6
+                                }
+                                
+                                onClicked: {
+                                    systemWindowMenu.close()
+                                    window.close()
+                                }
+                            }
+                        }
                     }
 
                     Popup {
@@ -144,6 +357,13 @@ ApplicationWindow {
                         modal: false
                         focus: true
                         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+                        
+                        onClosed: {
+                            if (qubberBtn.hovered) {
+                                qubberBtn.preventOpen = true
+                                menuDelayTimer.start()
+                            }
+                        }
                         
                         background: Rectangle {
                             color: window.colCard
@@ -220,10 +440,11 @@ ApplicationWindow {
                     Button {
                         id: contactsBtn
                         implicitHeight: 26
+                        property bool preventOpen: false
                         
                         contentItem: Text {
                             text: "Contacts"
-                            color: contactsBtn.hovered ? window.colText : window.topBarFg
+                            color: contactsBtn.hovered ? window.colPrimary : window.colText
                             font.pixelSize: 13
                             verticalAlignment: Text.AlignVCenter
                         }
@@ -233,8 +454,22 @@ ApplicationWindow {
                             radius: 6
                         }
                         
+                        hoverEnabled: true
+                        onHoveredChanged: {
+                            if (hovered && window.isMenuBarActive) {
+                                qubberMenu.close()
+                                accountMenu.close()
+                                contactsMenu.open()
+                            }
+                        }
+                        
                         onClicked: {
-                            contactsMenu.open()
+                            if (contactsMenu.opened) {
+                                contactsMenu.close()
+                            } else if (!preventOpen) {
+                                contactsMenu.open()
+                            }
+                            preventOpen = false
                         }
 
                         Popup {
@@ -246,6 +481,13 @@ ApplicationWindow {
                             modal: false
                             focus: true
                             closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+                            
+                            onClosed: {
+                                if (contactsBtn.hovered) {
+                                    contactsBtn.preventOpen = true
+                                    menuDelayTimer.start()
+                                }
+                            }
                             
                             background: Rectangle {
                                 color: window.colCard
@@ -310,10 +552,11 @@ ApplicationWindow {
                     Button {
                         id: accountBtn
                         implicitHeight: 26
+                        property bool preventOpen: false
                         
                         contentItem: Text {
                             text: xmppBackend.myJid !== "" ? xmppBackend.myJid : "Account"
-                            color: accountBtn.hovered ? window.colText : window.topBarFg
+                            color: accountBtn.hovered ? window.colPrimary : window.colText
                             font.pixelSize: 13
                             verticalAlignment: Text.AlignVCenter
                         }
@@ -323,8 +566,22 @@ ApplicationWindow {
                             radius: 6
                         }
                         
+                        hoverEnabled: true
+                        onHoveredChanged: {
+                            if (hovered && window.isMenuBarActive) {
+                                qubberMenu.close()
+                                contactsMenu.close()
+                                accountMenu.open()
+                            }
+                        }
+                        
                         onClicked: {
-                            accountMenu.open()
+                            if (accountMenu.opened) {
+                                accountMenu.close()
+                            } else if (!preventOpen) {
+                                accountMenu.open()
+                            }
+                            preventOpen = false
                         }
 
                         Popup {
@@ -336,6 +593,13 @@ ApplicationWindow {
                             modal: false
                             focus: true
                             closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+                            
+                            onClosed: {
+                                if (accountBtn.hovered) {
+                                    accountBtn.preventOpen = true
+                                    menuDelayTimer.start()
+                                }
+                            }
                             
                             background: Rectangle {
                                 color: window.colCard
@@ -414,7 +678,7 @@ ApplicationWindow {
                         
                         contentItem: Text {
                             text: "—"
-                            color: minBtn.hovered ? window.colText : window.topBarFg
+                            color: minBtn.hovered ? window.colPrimary : window.colText
                             font.pixelSize: 11
                             horizontalAlignment: Text.AlignHCenter
                             verticalAlignment: Text.AlignVCenter
@@ -434,7 +698,7 @@ ApplicationWindow {
                         
                         contentItem: Text {
                             text: window.visibility === Window.Maximized ? "⧉" : "▢"
-                            color: maxBtn.hovered ? window.colText : window.topBarFg
+                            color: maxBtn.hovered ? window.colPrimary : window.colText
                             font.pixelSize: 14
                             horizontalAlignment: Text.AlignHCenter
                             verticalAlignment: Text.AlignVCenter
@@ -460,7 +724,7 @@ ApplicationWindow {
                         
                         contentItem: Text {
                             text: "✕"
-                            color: closeBtn.hovered ? "white" : window.topBarFg
+                            color: closeBtn.hovered ? "white" : window.colText
                             font.pixelSize: 12
                             horizontalAlignment: Text.AlignHCenter
                             verticalAlignment: Text.AlignVCenter
@@ -494,6 +758,7 @@ ApplicationWindow {
                 Behavior on opacity { NumberAnimation { duration: 150 } }
             }
         }
+    }
     
     // Frameless window resize borders
     MouseArea {
@@ -653,43 +918,33 @@ ApplicationWindow {
         focus: true
         width: 360
         height: 500
+        padding: 24
         
         background: Rectangle {
             color: window.colCard
             border.color: window.colBorder
             border.width: 1
-            radius: 16
-        }
-        
-        header: Rectangle {
-            color: "transparent"
-            height: 50
-            
-            RowLayout {
-                anchors.fill: parent
-                anchors.leftMargin: 20
-                anchors.rightMargin: 20
-                
-                Text {
-                    text: "Contacts Roster"
-                    color: window.colText
-                    font.pixelSize: 15
-                    font.bold: true
-                }
-            }
+            radius: 2
         }
         
         contentItem: ColumnLayout {
-            spacing: 12
+            spacing: 16
             
-            // Search Input Field inside the Popup
+            Text {
+                text: "Contacts Roster"
+                color: window.colText
+                font.pixelSize: 18
+                font.bold: true
+                Layout.alignment: Qt.AlignLeft
+            }
+            
             TextField {
                 id: popupSearchInput
                 Layout.fillWidth: true
                 placeholderText: "Search contacts..."
                 placeholderTextColor: "#4b5563"
                 color: window.colText
-                font.pixelSize: 13
+                font.pixelSize: 14
                 selectByMouse: true
                 leftPadding: 10
                 rightPadding: 10
@@ -700,11 +955,10 @@ ApplicationWindow {
                     color: popupSearchInput.activeFocus ? "#0b0f19" : window.colInputBg
                     border.color: popupSearchInput.activeFocus ? window.colPrimary : window.colBorder
                     border.width: 1
-                    radius: 8
+                    radius: 2
                 }
             }
             
-            // Contacts ListView
             ListView {
                 id: popupRosterList
                 Layout.fillWidth: true
@@ -712,7 +966,6 @@ ApplicationWindow {
                 clip: true
                 model: rosterModel
                 
-                // Expose filter text to delegates (matched with search input)
                 property string filterText: popupSearchInput.text.toLowerCase().trim()
                 
                 delegate: ContactDelegate {}
@@ -721,29 +974,25 @@ ApplicationWindow {
                     policy: ScrollBar.AsNeeded
                 }
             }
-        }
-        
-        footer: Rectangle {
-            color: "transparent"
-            height: 54
             
             Button {
                 id: closePopupBtn
-                anchors.centerIn: parent
-                width: 100
-                implicitHeight: 32
+                Layout.alignment: Qt.AlignHCenter
+                implicitWidth: 100
+                implicitHeight: 34
                 
                 contentItem: Text {
                     text: "Close"
                     color: "white"
+                    font.bold: true
+                    font.pixelSize: 13
                     horizontalAlignment: Text.AlignHCenter
                     verticalAlignment: Text.AlignVCenter
-                    font.bold: true
                 }
                 
                 background: Rectangle {
                     color: closePopupBtn.down ? window.colPrimaryDark : (closePopupBtn.hovered ? window.colAccent : window.colPrimary)
-                    radius: 8
+                    radius: 2
                 }
                 
                 onClicked: contactsListPopup.close()
@@ -762,7 +1011,7 @@ ApplicationWindow {
         modal: true
         focus: true
         width: 380
-        height: 340
+        padding: 24
         
         property string selfStatus: "available"
         
@@ -770,31 +1019,20 @@ ApplicationWindow {
             color: window.colCard
             border.color: window.colBorder
             border.width: 1
-            radius: 16
-        }
-        
-        header: Rectangle {
-            color: "transparent"
-            height: 50
-            
-            RowLayout {
-                anchors.fill: parent
-                anchors.leftMargin: 20
-                anchors.rightMargin: 20
-                
-                Text {
-                    text: "Change Presence Status"
-                    color: window.colText
-                    font.pixelSize: 15
-                    font.bold: true
-                }
-            }
+            radius: 2
         }
         
         contentItem: ColumnLayout {
             spacing: 16
             
-            // Presence Selector Buttons
+            Text {
+                text: "Change Presence Status"
+                color: window.colText
+                font.pixelSize: 18
+                font.bold: true
+                Layout.alignment: Qt.AlignLeft
+            }
+            
             ColumnLayout {
                 Layout.fillWidth: true
                 spacing: 8
@@ -815,7 +1053,7 @@ ApplicationWindow {
                         id: statusOnlineRect
                         Layout.fillWidth: true
                         height: 36
-                        radius: 8
+                        radius: 2
                         color: changeStatusPopup.selfStatus === "available" ? "#10b98115" : window.colInputBg
                         border.color: changeStatusPopup.selfStatus === "available" ? window.colOnline : window.colBorder
                         border.width: 1.5
@@ -841,7 +1079,7 @@ ApplicationWindow {
                         id: statusAwayRect
                         Layout.fillWidth: true
                         height: 36
-                        radius: 8
+                        radius: 2
                         color: changeStatusPopup.selfStatus === "away" ? "#f59e0b15" : window.colInputBg
                         border.color: changeStatusPopup.selfStatus === "away" ? window.colAway : window.colBorder
                         border.width: 1.5
@@ -867,7 +1105,7 @@ ApplicationWindow {
                         id: statusDndRect
                         Layout.fillWidth: true
                         height: 36
-                        radius: 8
+                        radius: 2
                         color: changeStatusPopup.selfStatus === "dnd" ? "#ef444415" : window.colInputBg
                         border.color: changeStatusPopup.selfStatus === "dnd" ? window.colDnd : window.colBorder
                         border.width: 1.5
@@ -890,7 +1128,6 @@ ApplicationWindow {
                 }
             }
             
-            // Status Message Input
             ColumnLayout {
                 Layout.fillWidth: true
                 spacing: 6
@@ -919,30 +1156,24 @@ ApplicationWindow {
                         color: popupStatusMsgInput.activeFocus ? "#0b0f19" : window.colInputBg
                         border.color: popupStatusMsgInput.activeFocus ? window.colPrimary : window.colBorder
                         border.width: 1.5
-                        radius: 8
+                        radius: 2
                     }
                 }
             }
-        }
-        
-        footer: Rectangle {
-            color: "transparent"
-            height: 54
             
             RowLayout {
-                anchors.fill: parent
-                anchors.leftMargin: 20
-                anchors.rightMargin: 20
+                Layout.fillWidth: true
                 spacing: 12
+                Layout.topMargin: 8
                 
                 Button {
                     id: cancelStatusBtn
                     Layout.fillWidth: true
-                    implicitHeight: 32
+                    implicitHeight: 36
                     
                     contentItem: Text {
                         text: "Cancel"
-                        color: window.colMuted
+                        color: window.colText
                         horizontalAlignment: Text.AlignHCenter
                         verticalAlignment: Text.AlignVCenter
                     }
@@ -951,7 +1182,7 @@ ApplicationWindow {
                         color: "transparent"
                         border.color: window.colBorder
                         border.width: 1
-                        radius: 8
+                        radius: 2
                     }
                     
                     onClicked: changeStatusPopup.close()
@@ -960,7 +1191,7 @@ ApplicationWindow {
                 Button {
                     id: saveStatusBtn
                     Layout.fillWidth: true
-                    implicitHeight: 32
+                    implicitHeight: 36
                     
                     contentItem: Text {
                         text: "Save"
@@ -972,7 +1203,7 @@ ApplicationWindow {
                     
                     background: Rectangle {
                         color: saveStatusBtn.down ? window.colPrimaryDark : (saveStatusBtn.hovered ? window.colAccent : window.colPrimary)
-                        radius: 8
+                        radius: 2
                     }
                     
                     onClicked: {
@@ -991,5 +1222,14 @@ ApplicationWindow {
     SubscriptionDialog {
         id: subscriptionDialog
     }
-}
+    
+    Timer {
+        id: menuDelayTimer
+        interval: 150
+        onTriggered: {
+            qubberBtn.preventOpen = false
+            contactsBtn.preventOpen = false
+            accountBtn.preventOpen = false
+        }
+    }
 }

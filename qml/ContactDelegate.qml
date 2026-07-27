@@ -60,8 +60,6 @@ ItemDelegate {
         radius: 0
         border.color: delegate.isActive ? '#e41f84f9' : "transparent"
         border.width: 1
-        
-        Behavior on color { ColorAnimation { duration: 120 } }
     }
     
     contentItem: RowLayout {
@@ -177,25 +175,25 @@ ItemDelegate {
                     }
                     sourceSize: Qt.size(14, 14)
                 }
-            }
-        }
-        
-        // Unread Badge
-        Rectangle {
-            visible: model.unreadCount > 0
-            width: Math.max(20, unreadText.implicitWidth + 8)
-            height: 20
-            radius: 10
-            color: "#ec4899"
-            Layout.alignment: Qt.AlignVCenter
-            
-            Text {
-                id: unreadText
-                anchors.centerIn: parent
-                text: model.unreadCount
-                color: "white"
-                font.pixelSize: 11
-                font.bold: true
+                
+                // Unread Badge (placed on the level of last message)
+                Rectangle {
+                    visible: model.unreadCount > 0
+                    width: Math.max(20, unreadText.implicitWidth + 8)
+                    height: 20
+                    radius: 10
+                    color: "#ec4899"
+                    Layout.alignment: Qt.AlignVCenter
+                    
+                    Text {
+                        id: unreadText
+                        anchors.centerIn: parent
+                        text: model.unreadCount
+                        color: "white"
+                        font.pixelSize: 11
+                        font.bold: true
+                    }
+                }
             }
         }
     }

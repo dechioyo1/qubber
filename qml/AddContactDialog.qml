@@ -7,35 +7,26 @@ Dialog {
     anchors.centerIn: parent
     modal: true
     focus: true
+    padding: 24
     
     background: Rectangle {
         color: window.colCard
         border.color: window.colBorder
         border.width: 1
-        radius: 16
-    }
-    
-    header: Rectangle {
-        color: "transparent"
-        height: 54
-        
-        RowLayout {
-            anchors.fill: parent
-            anchors.leftMargin: 20
-            anchors.rightMargin: 20
-            
-            Text {
-                text: "Add Contact"
-                color: window.colText
-                font.pixelSize: 16
-                font.bold: true
-            }
-        }
+        radius: 2
     }
     
     contentItem: ColumnLayout {
         spacing: 16
-        width: 340
+        width: 320
+        
+        Text {
+            text: "Add Contact"
+            color: window.colText
+            font.pixelSize: 18
+            font.bold: true
+            Layout.alignment: Qt.AlignLeft
+        }
         
         ColumnLayout {
             Layout.fillWidth: true
@@ -65,7 +56,7 @@ Dialog {
                     color: jidInput.activeFocus ? "#0b0f19" : window.colInputBg
                     border.color: jidInput.activeFocus ? window.colPrimary : window.colBorder
                     border.width: 1
-                    radius: 8
+                    radius: 2
                 }
             }
         }
@@ -98,30 +89,24 @@ Dialog {
                     color: nickInput.activeFocus ? "#0b0f19" : window.colInputBg
                     border.color: nickInput.activeFocus ? window.colPrimary : window.colBorder
                     border.width: 1
-                    radius: 8
+                    radius: 2
                 }
             }
         }
-    }
-    
-    footer: Rectangle {
-        color: "transparent"
-        height: 64
         
         RowLayout {
-            anchors.fill: parent
-            anchors.leftMargin: 20
-            anchors.rightMargin: 20
+            Layout.fillWidth: true
             spacing: 12
+            Layout.topMargin: 8
             
             Button {
                 id: cancelBtn
                 Layout.fillWidth: true
-                implicitHeight: 38
+                implicitHeight: 36
                 
                 contentItem: Text {
                     text: "Cancel"
-                    color: window.colMuted
+                    color: window.colText
                     horizontalAlignment: Text.AlignHCenter
                     verticalAlignment: Text.AlignVCenter
                 }
@@ -130,7 +115,7 @@ Dialog {
                     color: cancelBtn.down ? "#33415540" : (cancelBtn.hovered ? "#33415520" : "transparent")
                     border.color: window.colBorder
                     border.width: 1
-                    radius: 8
+                    radius: 2
                 }
                 
                 onClicked: dialog.reject()
@@ -139,7 +124,7 @@ Dialog {
             Button {
                 id: addBtn
                 Layout.fillWidth: true
-                implicitHeight: 38
+                implicitHeight: 36
                 enabled: jidInput.text.trim() !== ""
                 
                 contentItem: Text {
@@ -152,7 +137,7 @@ Dialog {
                 
                 background: Rectangle {
                     color: addBtn.down ? window.colPrimaryDark : (addBtn.hovered ? window.colAccent : window.colPrimary)
-                    radius: 8
+                    radius: 2
                     opacity: addBtn.enabled ? 1.0 : 0.5
                 }
                 

@@ -243,6 +243,68 @@ Item {
                             Layout.fillWidth: true
                             elide: Text.ElideRight
                         }
+                        
+                        RowLayout {
+                            spacing: 4
+                            Layout.alignment: Qt.AlignVCenter
+                            
+                            Button {
+                                id: lockIconBtn
+                                implicitWidth: 32
+                                implicitHeight: 32
+                                
+                                contentItem: Image {
+                                    anchors.centerIn: parent
+                                    width: 20
+                                    height: 20
+                                    source: lockIconBtn.hovered ? "icons/lock_white.svg" : "icons/lock_muted.svg"
+                                    sourceSize: Qt.size(20, 20)
+                                }
+                                
+                                background: Rectangle {
+                                    color: lockIconBtn.hovered ? "#33415520" : "transparent"
+                                    radius: 16
+                                }
+                            }
+                            
+                            Button {
+                                id: rightSidebarBtn
+                                implicitWidth: 32
+                                implicitHeight: 32
+                                
+                                contentItem: Image {
+                                    anchors.centerIn: parent
+                                    width: 20
+                                    height: 20
+                                    source: rightSidebarBtn.hovered ? "icons/view_sidebar_white.svg" : "icons/view_sidebar_muted.svg"
+                                    sourceSize: Qt.size(20, 20)
+                                }
+                                
+                                background: Rectangle {
+                                    color: rightSidebarBtn.hovered ? "#33415520" : "transparent"
+                                    radius: 16
+                                }
+                            }
+                            
+                            Button {
+                                id: moreHorizBtn
+                                implicitWidth: 32
+                                implicitHeight: 32
+                                
+                                contentItem: Image {
+                                    anchors.centerIn: parent
+                                    width: 20
+                                    height: 20
+                                    source: moreHorizBtn.hovered ? "icons/more_horiz_white.svg" : "icons/more_horiz_muted.svg"
+                                    sourceSize: Qt.size(20, 20)
+                                }
+                                
+                                background: Rectangle {
+                                    color: moreHorizBtn.hovered ? "#33415520" : "transparent"
+                                    radius: 16
+                                }
+                            }
+                        }
                     }
                 }
                 
@@ -254,6 +316,8 @@ Item {
                     clip: true
                     model: chatModel
                     delegate: MessageDelegate {}
+                    boundsBehavior: Flickable.StopAtBounds
+                    interactive: contentHeight > height
                     
                     // Align messages to the bottom when history is short
                     topMargin: Math.max(0, height - contentHeight)
@@ -261,6 +325,19 @@ Item {
                     
                     ScrollBar.vertical: ScrollBar {
                         policy: ScrollBar.AsNeeded
+                    }
+                    
+                    // Speed up wheel scrolling using a pass-through MouseArea
+                    MouseArea {
+                        anchors.fill: parent
+                        acceptedButtons: Qt.NoButton
+                        onWheel: (wheel) => {
+                            if (chatHistoryView.contentHeight > chatHistoryView.height && wheel.angleDelta.y !== 0) {
+                                var newY = chatHistoryView.contentY - wheel.angleDelta.y * 0.6;
+                                chatHistoryView.contentY = Math.max(chatHistoryView.originY - chatHistoryView.topMargin, Math.min(newY, chatHistoryView.contentHeight - chatHistoryView.height));
+                                wheel.accepted = true;
+                            }
+                        }
                     }
                     
                     // Auto-scroll on new message (Qt.callLater ensures new delegates are loaded/positioned before scrolling)

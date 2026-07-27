@@ -26,6 +26,13 @@ Item {
         return !!t.match(/\.gif(\?.*)?$/i);
     }
 
+    Text {
+        id: dummyText
+        text: model.body
+        font.pixelSize: 14
+        visible: false
+    }
+
     ColumnLayout {
         id: bubbleColumn
         anchors.left: model.isMe ? undefined : parent.left
@@ -33,10 +40,10 @@ Item {
         anchors.leftMargin: 16
         anchors.rightMargin: 16
         
-        // Dynamically compute width
+        // Dynamically compute width using unwrapped dummyText implicitWidth
         width: root.isImg
             ? (root.isGif ? gifImage.width : staticImage.width) + 24
-            : Math.min(root.width * 0.7, Math.max(messageText.implicitWidth + 24, 60))
+            : Math.min(root.width * 0.6, Math.max(dummyText.implicitWidth + 24, 60))
         spacing: 3
 
         Rectangle {
@@ -50,7 +57,7 @@ Item {
             color: model.isMe ? window.msgOutBg : window.msgInBg
             border.color: model.isMe ? "transparent" : window.colBorder
             border.width: model.isMe ? 0 : 1
-
+ 
             Text {
                 id: messageText
                 visible: !root.isImg
@@ -62,7 +69,7 @@ Item {
                 text: model.body
                 color: model.isMe ? window.msgOutText : window.msgInText
                 font.pixelSize: 14
-                wrapMode: Text.Wrap
+                wrapMode: (dummyText.implicitWidth + 24 > root.width * 0.6) ? Text.Wrap : Text.WordWrap
             }
 
             Image {

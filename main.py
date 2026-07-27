@@ -46,6 +46,9 @@ def main():
     chat_model = ChatModel()
     backend = XmppBackend(roster_model, chats_list_model, chat_model)
     
+    # Ensure clean XMPP disconnect on shutdown
+    app.aboutToQuit.connect(backend.logout)
+    
     # Initialize QML engine
     engine = QQmlApplicationEngine()
     

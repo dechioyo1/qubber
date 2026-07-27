@@ -15,7 +15,7 @@ Dialog {
         color: window.colCard
         border.color: window.colBorder
         border.width: 1
-        radius: 16
+        radius: 2
         
         // Glow effect
         Rectangle {
@@ -23,7 +23,7 @@ Dialog {
             color: "transparent"
             border.color: window.colPrimary
             border.width: 1
-            radius: 16
+            radius: 2
             opacity: 0.2
         }
     }
@@ -87,7 +87,7 @@ Dialog {
                     color: denyBtn.down ? "#ef444425" : (denyBtn.hovered ? "#ef444415" : "transparent")
                     border.color: window.colDnd
                     border.width: 1
-                    radius: 8
+                    radius: 2
                 }
                 
                 onClicked: {
@@ -111,7 +111,7 @@ Dialog {
                 
                 background: Rectangle {
                     color: approveBtn.down ? window.colPrimaryDark : (approveBtn.hovered ? window.colAccent : window.colPrimary)
-                    radius: 8
+                    radius: 2
                 }
                 
                 onClicked: {

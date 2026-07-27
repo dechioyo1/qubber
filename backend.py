@@ -153,9 +153,15 @@ class XmppBackend(QObject):
 
     @Slot()
     def logout(self):
-        if self.client:
-            self.client.disconnect()
-            self.client = None
+        if self.client and self.client.is_connected():
+            try:
+                logging.info("Sending unavailable presence before disconnect...")
+                self.client.send_presence(ptype='unavailable')
+                self.client.disconnect(wait=1.0)
+            except Exception as e:
+                logging.error(f"Error sending unavailable presence: {e}")
+            finally:
+                self.client = None
         self.set_connection_status("Disconnected")
         self.roster_model.clear()
         self.chats_list_model.clear()
