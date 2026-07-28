@@ -75,10 +75,11 @@ ItemDelegate {
             height: 48
             Layout.alignment: Qt.AlignVCenter
             
-            // Avatar square background with 2px radius and colorful gradient
+            // Avatar square background with 2px radius and colorful gradient / cached avatar image
             Rectangle {
                 anchors.fill: parent
                 radius: 2
+                clip: true
                 
                 gradient: Gradient {
                     GradientStop { position: 0.0; color: getAvatarGradient(model.name || model.jid)[0] }
@@ -87,10 +88,19 @@ ItemDelegate {
                 
                 Text {
                     anchors.centerIn: parent
+                    visible: avatarImg.status !== Image.Ready
                     text: (model.name && model.name.length > 0) ? model.name.substring(0, 1).toUpperCase() : "?"
                     color: "white"
                     font.pixelSize: 22
                     font.bold: true
+                }
+
+                Image {
+                    id: avatarImg
+                    anchors.fill: parent
+                    source: (model.avatar !== undefined && model.avatar !== null) ? model.avatar : ""
+                    fillMode: Image.PreserveAspectCrop
+                    visible: status === Image.Ready
                 }
             }
             
@@ -114,7 +124,7 @@ ItemDelegate {
             }
         }
         
-        // Name, JID, and Last Message / Status
+        // Name, JID, and Last Message / Status / Last Seen
         ColumnLayout {
             Layout.fillWidth: true
             Layout.alignment: Qt.AlignVCenter
@@ -146,7 +156,11 @@ ItemDelegate {
                 spacing: 4
                 
                 Text {
-                    text: (model.lastMessage && model.lastMessage !== "") ? model.lastMessage : (model.statusMessage !== "" ? model.statusMessage : model.jid)
+                    text: (model.lastMessage && model.lastMessage !== "") 
+                        ? model.lastMessage 
+                        : ((model.lastSeen && model.lastSeen !== "") 
+                            ? model.lastSeen 
+                            : (model.statusMessage !== "" ? model.statusMessage : model.jid))
                     color: delegate.isActive ? "#ffffffe0" : window.colMuted
                     font.pixelSize: 14
                     elide: Text.ElideRight

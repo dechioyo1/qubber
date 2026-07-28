@@ -10,10 +10,12 @@ class RosterModel(QAbstractListModel):
     LastMessageTimeRole = Qt.ItemDataRole.UserRole + 7
     LastMessageIsMeRole = Qt.ItemDataRole.UserRole + 8
     LastMessageStatusRole = Qt.ItemDataRole.UserRole + 9
+    AvatarRole = Qt.ItemDataRole.UserRole + 10
+    LastSeenRole = Qt.ItemDataRole.UserRole + 11
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._contacts = []  # list of dicts: {'jid': ..., 'name': ..., 'status': ..., 'statusMessage': ..., 'unreadCount': ..., 'lastMessage': ..., 'lastMessageTime': ..., 'lastMessageIsMe': ..., 'lastMessageStatus': ...}
+        self._contacts = []  # list of dicts
 
     def roleNames(self):
         return {
@@ -25,7 +27,9 @@ class RosterModel(QAbstractListModel):
             self.LastMessageRole: b"lastMessage",
             self.LastMessageTimeRole: b"lastMessageTime",
             self.LastMessageIsMeRole: b"lastMessageIsMe",
-            self.LastMessageStatusRole: b"lastMessageStatus"
+            self.LastMessageStatusRole: b"lastMessageStatus",
+            self.AvatarRole: b"avatar",
+            self.LastSeenRole: b"lastSeen"
         }
 
     def rowCount(self, parent=QModelIndex()):
@@ -56,15 +60,26 @@ class RosterModel(QAbstractListModel):
             return contact.get('lastMessageIsMe', False)
         elif role == self.LastMessageStatusRole:
             return contact.get('lastMessageStatus', 'sent')
+        elif role == self.AvatarRole:
+            return contact.get('avatar', '')
+        elif role == self.LastSeenRole:
+            return contact.get('lastSeen', '')
         return None
 
-    def set_contacts(self, contacts):
-        """Reset contact list with new items and sort online first."""
+    def set_contacts(self, contacts, sort_by_latest=False):
+        """Reset contact list with new items."""
         self.beginResetModel()
-        self._contacts = sorted(
-            contacts, 
-            key=lambda c: (c.get('status', 'offline') == 'offline', (c.get('name') or c.get('jid', '')).lower())
-        )
+        if sort_by_latest:
+            self._contacts = sorted(
+                contacts,
+                key=lambda c: c.get('lastMsgId', 0),
+                reverse=True
+            )
+        else:
+            self._contacts = sorted(
+                contacts, 
+                key=lambda c: (c.get('status', 'offline') == 'offline', (c.get('name') or c.get('jid', '')).lower())
+            )
         self.endResetModel()
 
     def update_contact(self, jid, **kwargs):
@@ -78,12 +93,12 @@ class RosterModel(QAbstractListModel):
         # If not found, add it
         self.add_contact(jid, **kwargs)
 
-    def add_contact(self, jid, name=None, status='offline', statusMessage='', unreadCount=0, lastMessage='', lastMessageTime='', lastMessageIsMe=False, lastMessageStatus='sent'):
+    def add_contact(self, jid, name=None, status='offline', statusMessage='', unreadCount=0, lastMessage='', lastMessageTime='', lastMessageIsMe=False, lastMessageStatus='sent', avatar='', lastSeen=''):
         """Add a contact if not already present."""
         for contact in self._contacts:
             if contact['jid'] == jid:
                 # Update if already exists
-                self.update_contact(jid, name=name, status=status, statusMessage=statusMessage, lastMessage=lastMessage, lastMessageTime=lastMessageTime, lastMessageIsMe=lastMessageIsMe, lastMessageStatus=lastMessageStatus)
+                self.update_contact(jid, name=name, status=status, statusMessage=statusMessage, lastMessage=lastMessage, lastMessageTime=lastMessageTime, lastMessageIsMe=lastMessageIsMe, lastMessageStatus=lastMessageStatus, avatar=avatar, lastSeen=lastSeen)
                 return
         
         self.beginInsertRows(QModelIndex(), len(self._contacts), len(self._contacts))
@@ -96,7 +111,9 @@ class RosterModel(QAbstractListModel):
             'lastMessage': lastMessage,
             'lastMessageTime': lastMessageTime,
             'lastMessageIsMe': lastMessageIsMe,
-            'lastMessageStatus': lastMessageStatus
+            'lastMessageStatus': lastMessageStatus,
+            'avatar': avatar,
+            'lastSeen': lastSeen
         })
         self.endInsertRows()
 

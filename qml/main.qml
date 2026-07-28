@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import QtQuick.Dialogs
 
 ApplicationWindow {
     id: window
@@ -16,7 +17,7 @@ ApplicationWindow {
     color: window.colBg
     
     readonly property bool isNormalWindow: window.visibility !== Window.Maximized && window.visibility !== Window.FullScreen
-    readonly property bool isMenuBarActive: qubberMenu.opened || contactsMenu.opened || accountMenu.opened
+    readonly property bool isMenuBarActive: contactsMenu.opened || settingsMenu.opened || accountMenu.opened
 
     // Theme palette bound dynamically to themeManager
     readonly property color colPrimary: themeManager.colPrimary
@@ -107,335 +108,61 @@ ApplicationWindow {
                 anchors.rightMargin: 4
                 spacing: 12
 
-                // Qubber Logo and Title Menu Button
-                Button {
-                    id: qubberBtn
-                    implicitHeight: 26
-                    property bool preventOpen: false
-                    
-                    background: Rectangle {
-                        color: qubberBtn.hovered ? "#33415530" : "transparent"
-                        radius: 6
-                    }
-                    
-                    contentItem: RowLayout {
-                        spacing: 8
-                        Image {
-                            width: 18
-                            height: 18
-                            source: "../logo.svg"
-                            sourceSize: Qt.size(18, 18)
-                        }
-                        Text {
-                            text: "Qubber"
-                            color: qubberBtn.hovered ? window.colPrimary : window.colText
-                            font.pixelSize: 13
-                            font.bold: true
-                        }
-                    }
-                    
-                    hoverEnabled: true
-                    onHoveredChanged: {
-                        if (hovered && window.isMenuBarActive) {
-                            contactsMenu.close()
-                            accountMenu.close()
-                            qubberMenu.open()
-                        }
-                    }
-                    
-                     MouseArea {
-                        anchors.fill: parent
-                        acceptedButtons: Qt.LeftButton | Qt.RightButton
-                        cursorShape: Qt.PointingHandCursor
-                        
-                        onClicked: (mouse) => {
-                            if (mouse.button === Qt.RightButton) {
-                                systemWindowMenu.open()
-                            } else {
-                                if (qubberMenu.opened) {
-                                    qubberMenu.close()
-                                } else if (!qubberBtn.preventOpen) {
-                                    qubberMenu.open()
-                                }
-                                qubberBtn.preventOpen = false
-                            }
-                        }
-                    }
 
-                    Popup {
-                        id: systemWindowMenu
-                        y: parent.height + 4
-                        x: 0
-                        width: 180
-                        padding: 6
-                        modal: false
-                        focus: true
-                        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
-                        
-                        background: Rectangle {
-                            color: window.colCard
-                            border.color: window.colBorder
-                            radius: 8
-                        }
-                        
-                        contentItem: ColumnLayout {
-                            spacing: 4
-                            
-                            Button {
-                                id: sysRestoreBtn
-                                Layout.fillWidth: true
-                                implicitHeight: 32
-                                enabled: window.visibility === Window.Maximized
-                                
-                                contentItem: Text {
-                                    text: "Restore"
-                                    color: sysRestoreBtn.enabled ? (sysRestoreBtn.hovered ? "white" : window.colText) : window.colMuted
-                                    font.pixelSize: 13
-                                    verticalAlignment: Text.AlignVCenter
-                                    leftPadding: 8
-                                }
-                                
-                                background: Rectangle {
-                                    color: sysRestoreBtn.hovered && sysRestoreBtn.enabled ? window.colPrimary : "transparent"
-                                    radius: 6
-                                }
-                                
-                                onClicked: {
-                                    systemWindowMenu.close()
-                                    window.showNormal()
-                                }
-                            }
-                            
-                            Button {
-                                id: sysMoveBtn
-                                Layout.fillWidth: true
-                                implicitHeight: 32
-                                
-                                contentItem: Text {
-                                    text: "Move"
-                                    color: sysMoveBtn.hovered ? "white" : window.colText
-                                    font.pixelSize: 13
-                                    verticalAlignment: Text.AlignVCenter
-                                    leftPadding: 8
-                                }
-                                
-                                background: Rectangle {
-                                    color: sysMoveBtn.hovered ? window.colPrimary : "transparent"
-                                    radius: 6
-                                }
-                                
-                                onClicked: {
-                                    systemWindowMenu.close()
-                                    window.startSystemMove()
-                                }
-                            }
-                            
-                            Button {
-                                id: sysMinimizeBtn
-                                Layout.fillWidth: true
-                                implicitHeight: 32
-                                
-                                contentItem: Text {
-                                    text: "Minimize"
-                                    color: sysMinimizeBtn.hovered ? "white" : window.colText
-                                    font.pixelSize: 13
-                                    verticalAlignment: Text.AlignVCenter
-                                    leftPadding: 8
-                                }
-                                
-                                background: Rectangle {
-                                    color: sysMinimizeBtn.hovered ? window.colPrimary : "transparent"
-                                    radius: 6
-                                }
-                                
-                                onClicked: {
-                                    systemWindowMenu.close()
-                                    window.showMinimized()
-                                }
-                            }
-                            
-                            Button {
-                                id: sysMaximizeBtn
-                                Layout.fillWidth: true
-                                implicitHeight: 32
-                                enabled: window.visibility !== Window.Maximized
-                                
-                                contentItem: Text {
-                                    text: "Maximize"
-                                    color: sysMaximizeBtn.enabled ? (sysMaximizeBtn.hovered ? "white" : window.colText) : window.colMuted
-                                    font.pixelSize: 13
-                                    verticalAlignment: Text.AlignVCenter
-                                    leftPadding: 8
-                                }
-                                
-                                background: Rectangle {
-                                    color: sysMaximizeBtn.hovered && sysMaximizeBtn.enabled ? window.colPrimary : "transparent"
-                                    radius: 6
-                                }
-                                
-                                onClicked: {
-                                    systemWindowMenu.close()
-                                    window.showMaximized()
-                                }
-                            }
-                            
-                            Button {
-                                id: sysAlwaysOnTopBtn
-                                Layout.fillWidth: true
-                                implicitHeight: 32
-                                
-                                contentItem: RowLayout {
-                                    anchors.fill: parent
-                                    anchors.leftMargin: 8
-                                    anchors.rightMargin: 8
-                                    spacing: 8
-                                    Text {
-                                        text: "Always on Top"
-                                        color: sysAlwaysOnTopBtn.hovered ? "white" : window.colText
-                                        font.pixelSize: 13
-                                        Layout.fillWidth: true
-                                        verticalAlignment: Text.AlignVCenter
-                                    }
-                                    Text {
-                                        text: window.alwaysOnTop ? "✓" : ""
-                                        color: sysAlwaysOnTopBtn.hovered ? "white" : window.colPrimary
-                                        font.pixelSize: 14
-                                        font.bold: true
-                                    }
-                                }
-                                
-                                background: Rectangle {
-                                    color: sysAlwaysOnTopBtn.hovered ? window.colPrimary : "transparent"
-                                    radius: 6
-                                }
-                                
-                                onClicked: {
-                                    systemWindowMenu.close()
-                                    window.alwaysOnTop = !window.alwaysOnTop
-                                }
-                            }
-                            
-                            Rectangle {
-                                Layout.fillWidth: true
-                                height: 1
-                                color: window.colBorder
-                            }
-                            
-                            Button {
-                                id: sysCloseBtn
-                                Layout.fillWidth: true
-                                implicitHeight: 32
-                                
-                                contentItem: Text {
-                                    text: "Close"
-                                    color: sysCloseBtn.hovered ? "white" : window.colText
-                                    font.pixelSize: 13
-                                    font.bold: true
-                                    verticalAlignment: Text.AlignVCenter
-                                    leftPadding: 8
-                                }
-                                
-                                background: Rectangle {
-                                    color: sysCloseBtn.hovered ? "#ef4444" : "transparent"
-                                    radius: 6
-                                }
-                                
-                                onClicked: {
-                                    systemWindowMenu.close()
-                                    window.close()
-                                }
-                            }
-                        }
-                    }
 
-                    Popup {
-                        id: qubberMenu
-                        y: parent.height + 4
-                        x: 0
-                        width: 160
-                        padding: 6
-                        modal: false
-                        focus: true
-                        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
-                        
-                        onClosed: {
-                            if (qubberBtn.hovered) {
-                                qubberBtn.preventOpen = true
-                                menuDelayTimer.start()
-                            }
-                        }
-                        
-                        background: Rectangle {
-                            color: window.colCard
-                            border.color: window.colBorder
-                            radius: 8
-                        }
-                        
-                        contentItem: ColumnLayout {
-                            spacing: 4
-                            
-                            Button {
-                                id: aboutMenuBtn
-                                Layout.fillWidth: true
-                                implicitHeight: 36
-                                
-                                contentItem: Text {
-                                    text: "About Qubber"
-                                    color: aboutMenuBtn.hovered ? "white" : window.colText
-                                    font.pixelSize: 14
-                                    verticalAlignment: Text.AlignVCenter
-                                    leftPadding: 8
-                                }
-                                
-                                background: Rectangle {
-                                    color: aboutMenuBtn.hovered ? window.colPrimary : "transparent"
-                                    radius: 6
-                                }
-                                
-                                onClicked: {
-                                    qubberMenu.close()
-                                    aboutDialog.open()
-                                }
-                            }
-
-                            Rectangle {
-                                Layout.fillWidth: true
-                                height: 1
-                                color: window.colBorder
-                            }
-
-                            Button {
-                                id: exitMenuBtn
-                                Layout.fillWidth: true
-                                implicitHeight: 36
-                                
-                                contentItem: Text {
-                                    text: "Exit"
-                                    color: exitMenuBtn.hovered ? "white" : window.colText
-                                    font.pixelSize: 14
-                                    verticalAlignment: Text.AlignVCenter
-                                    leftPadding: 8
-                                }
-                                
-                                background: Rectangle {
-                                    color: exitMenuBtn.hovered ? "#ef4444" : "transparent"
-                                    radius: 6
-                                }
-                                
-                                onClicked: {
-                                    qubberMenu.close()
-                                    window.close()
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // Menubar menu items (Contacts & Account)
+                // Menubar menu items (Status, Contacts, Settings & Account)
                 // Visible only when logged in (currentIndex is not 0)
                 RowLayout {
                     spacing: 4
                     visible: mainStack.currentIndex !== 0
+
+                    Button {
+                        id: statusBtn
+                        implicitHeight: 26
+                        property bool preventOpen: false
+                        
+                        contentItem: RowLayout {
+                            spacing: 6
+                            
+                            Rectangle {
+                                width: 8
+                                height: 8
+                                radius: 4
+                                Layout.alignment: Qt.AlignVCenter
+                                color: {
+                                    var st = xmppBackend.myStatus;
+                                    if (st === "away") return window.colAway;
+                                    if (st === "dnd") return window.colDnd;
+                                    return window.colOnline;
+                                }
+                            }
+                            
+                            Text {
+                                text: {
+                                    var msg = xmppBackend.myStatusMessage ? xmppBackend.myStatusMessage.trim() : "";
+                                    if (msg !== "") {
+                                        return msg.length > 10 ? msg.substring(0, 10) + "..." : msg;
+                                    }
+                                    var st = xmppBackend.myStatus;
+                                    if (st === "away") return "Away";
+                                    if (st === "dnd") return "Busy";
+                                    return "Online";
+                                }
+                                color: statusBtn.hovered ? window.colPrimary : window.colText
+                                font.pixelSize: 13
+                                verticalAlignment: Text.AlignVCenter
+                            }
+                        }
+                        
+                        background: Rectangle {
+                            color: statusBtn.hovered ? "#33415530" : "transparent"
+                            radius: 6
+                        }
+                        
+                        onClicked: {
+                            changeStatusPopup.open()
+                        }
+                    }
 
                     Button {
                         id: contactsBtn
@@ -457,7 +184,7 @@ ApplicationWindow {
                         hoverEnabled: true
                         onHoveredChanged: {
                             if (hovered && window.isMenuBarActive) {
-                                qubberMenu.close()
+                                settingsMenu.close()
                                 accountMenu.close()
                                 contactsMenu.open()
                             }
@@ -550,6 +277,118 @@ ApplicationWindow {
                     }
 
                     Button {
+                        id: settingsBtn
+                        implicitHeight: 26
+                        property bool preventOpen: false
+                        
+                        contentItem: Text {
+                            text: "Settings"
+                            color: settingsBtn.hovered ? window.colPrimary : window.colText
+                            font.pixelSize: 13
+                            verticalAlignment: Text.AlignVCenter
+                        }
+                        
+                        background: Rectangle {
+                            color: settingsBtn.hovered ? "#33415530" : "transparent"
+                            radius: 6
+                        }
+                        
+                        hoverEnabled: true
+                        onHoveredChanged: {
+                            if (hovered && window.isMenuBarActive) {
+                                contactsMenu.close()
+                                accountMenu.close()
+                                settingsMenu.open()
+                            }
+                        }
+                        
+                        onClicked: {
+                            if (settingsMenu.opened) {
+                                settingsMenu.close()
+                            } else if (!preventOpen) {
+                                settingsMenu.open()
+                            }
+                            preventOpen = false
+                        }
+
+                        Popup {
+                            id: settingsMenu
+                            y: parent.height + 4
+                            x: 0
+                            width: 160
+                            padding: 6
+                            modal: false
+                            focus: true
+                            closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+                            
+                            onClosed: {
+                                if (settingsBtn.hovered) {
+                                    settingsBtn.preventOpen = true
+                                    menuDelayTimer.start()
+                                }
+                            }
+                            
+                            background: Rectangle {
+                                color: window.colCard
+                                border.color: window.colBorder
+                                radius: 8
+                            }
+                            
+                            contentItem: ColumnLayout {
+                                spacing: 4
+                                
+                                Button {
+                                    id: themeMenuBtn
+                                    Layout.fillWidth: true
+                                    implicitHeight: 36
+                                    
+                                    contentItem: Text {
+                                        text: "Theme..."
+                                        color: themeMenuBtn.hovered ? "white" : window.colText
+                                        font.pixelSize: 14
+                                        verticalAlignment: Text.AlignVCenter
+                                        leftPadding: 8
+                                    }
+                                    
+                                    background: Rectangle {
+                                        color: themeMenuBtn.hovered ? window.colPrimary : "transparent"
+                                        radius: 6
+                                    }
+                                    
+                                    onClicked: {
+                                        settingsMenu.close()
+                                        themeDialog.open()
+                                    }
+                                }
+
+                                Button {
+                                    id: aboutSettingsMenuBtn
+                                    Layout.fillWidth: true
+                                    implicitHeight: 36
+                                    
+                                    contentItem: Text {
+                                        text: "About Qubber"
+                                        color: aboutSettingsMenuBtn.hovered ? "white" : window.colText
+                                        font.pixelSize: 14
+                                        verticalAlignment: Text.AlignVCenter
+                                        leftPadding: 8
+                                    }
+                                    
+                                    background: Rectangle {
+                                        color: aboutSettingsMenuBtn.hovered ? window.colPrimary : "transparent"
+                                        radius: 6
+                                    }
+                                    
+                                    onClicked: {
+                                        settingsMenu.close()
+                                        aboutDialog.open()
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    Button {
                         id: accountBtn
                         implicitHeight: 26
                         property bool preventOpen: false
@@ -569,8 +408,8 @@ ApplicationWindow {
                         hoverEnabled: true
                         onHoveredChanged: {
                             if (hovered && window.isMenuBarActive) {
-                                qubberMenu.close()
                                 contactsMenu.close()
+                                settingsMenu.close()
                                 accountMenu.open()
                             }
                         }
@@ -610,30 +449,6 @@ ApplicationWindow {
                             contentItem: ColumnLayout {
                                 spacing: 4
                                 
-                                Button {
-                                    id: changeStatusMenuBtn
-                                    Layout.fillWidth: true
-                                    implicitHeight: 36
-                                    
-                                    contentItem: Text {
-                                        text: "Change Status..."
-                                        color: changeStatusMenuBtn.hovered ? "white" : window.colText
-                                        font.pixelSize: 14
-                                        verticalAlignment: Text.AlignVCenter
-                                        leftPadding: 8
-                                    }
-                                    
-                                    background: Rectangle {
-                                        color: changeStatusMenuBtn.hovered ? window.colPrimary : "transparent"
-                                        radius: 6
-                                    }
-                                    
-                                    onClicked: {
-                                        accountMenu.close()
-                                        changeStatusPopup.open()
-                                    }
-                                }
-
                                 Button {
                                     id: logoutMenuBtn
                                     Layout.fillWidth: true
@@ -907,6 +722,144 @@ ApplicationWindow {
                 
                 onClicked: aboutDialog.close()
             }
+        }
+    }
+
+    Dialog {
+        id: themeDialog
+        anchors.centerIn: parent
+        modal: true
+        focus: true
+        padding: 24
+        
+        background: Rectangle {
+            color: window.colCard
+            border.color: window.colBorder
+            border.width: 1
+            radius: 8
+        }
+        
+        contentItem: ColumnLayout {
+            spacing: 16
+            width: 320
+            
+            Text {
+                text: "Theme Settings"
+                color: window.colText
+                font.pixelSize: 18
+                font.bold: true
+                Layout.alignment: Qt.AlignLeft
+            }
+            
+            Text {
+                text: "Theme configuration file:"
+                color: window.colMuted
+                font.pixelSize: 12
+            }
+            
+            Rectangle {
+                Layout.fillWidth: true
+                height: 36
+                color: window.colInputBg
+                border.color: window.colBorder
+                radius: 6
+                
+                Text {
+                    anchors.fill: parent
+                    anchors.leftMargin: 10
+                    anchors.rightMargin: 10
+                    text: "~/.config/Qubber/theme"
+                    color: window.colText
+                    font.pixelSize: 12
+                    verticalAlignment: Text.AlignVCenter
+                    elide: Text.ElideMiddle
+                }
+            }
+            
+            RowLayout {
+                spacing: 10
+                Layout.fillWidth: true
+                
+                Button {
+                    id: loadThemeFileBtn
+                    Layout.fillWidth: true
+                    implicitHeight: 36
+                    
+                    contentItem: Text {
+                        text: "Load Theme File..."
+                        color: "white"
+                        font.bold: true
+                        font.pixelSize: 13
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+                    
+                    background: Rectangle {
+                        color: loadThemeFileBtn.down ? window.colPrimaryDark : (loadThemeFileBtn.hovered ? window.colAccent : window.colPrimary)
+                        radius: 6
+                    }
+                    
+                    onClicked: {
+                        themeFileDialog.open()
+                    }
+                }
+                
+                Button {
+                    id: reloadThemeBtn
+                    Layout.fillWidth: true
+                    implicitHeight: 36
+                    
+                    contentItem: Text {
+                        text: "Reload Theme"
+                        color: window.colText
+                        font.pixelSize: 13
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+                    
+                    background: Rectangle {
+                        color: reloadThemeBtn.hovered ? "#33415540" : "transparent"
+                        border.color: window.colBorder
+                        radius: 6
+                    }
+                    
+                    onClicked: {
+                        themeManager.reloadTheme()
+                    }
+                }
+            }
+            
+            Button {
+                id: closeThemeDialogBtn
+                Layout.alignment: Qt.AlignHCenter
+                implicitWidth: 100
+                implicitHeight: 34
+                
+                contentItem: Text {
+                    text: "Close"
+                    color: window.colText
+                    font.pixelSize: 13
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                }
+                
+                background: Rectangle {
+                    color: "transparent"
+                    border.color: window.colBorder
+                    radius: 6
+                }
+                
+                onClicked: themeDialog.close()
+            }
+        }
+    }
+    
+    FileDialog {
+        id: themeFileDialog
+        title: "Select Theme File"
+        nameFilters: ["Theme files (*.tdesktop-theme *.palette *.txt)", "All files (*)"]
+        onAccepted: {
+            themeManager.loadThemeFromFile(selectedFile.toString())
         }
     }
 
@@ -1227,8 +1180,9 @@ ApplicationWindow {
         id: menuDelayTimer
         interval: 150
         onTriggered: {
-            qubberBtn.preventOpen = false
+            statusBtn.preventOpen = false
             contactsBtn.preventOpen = false
+            settingsBtn.preventOpen = false
             accountBtn.preventOpen = false
         }
     }

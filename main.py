@@ -4,9 +4,10 @@ import asyncio
 import os
 import signal
 from PySide6.QtCore import QTimer
-from PySide6.QtGui import QIcon
+from PySide6.QtGui import QIcon, QFontDatabase, QFont
 from PySide6.QtWidgets import QApplication
 from PySide6.QtQml import QQmlApplicationEngine
+from PySide6.QtQuick import QQuickWindow
 from qasync import QEventLoop
 
 from roster_model import RosterModel
@@ -15,6 +16,9 @@ from backend import XmppBackend
 from theme_manager import ThemeManager
 
 def main():
+    # Set default text rendering type to NativeTextRendering to support color emojis on Linux
+    QQuickWindow.setTextRenderType(QQuickWindow.TextRenderType.NativeTextRendering)
+    
     # Setup logging to see XMPP transactions
     logging.basicConfig(level=logging.INFO, format="%(levelname)-8s %(message)s")
     
@@ -24,6 +28,18 @@ def main():
     
     # Load and set application icon (used for dock / window switcher)
     script_dir = os.path.dirname(os.path.abspath(__file__))
+    
+    # Load custom Open Sans fonts
+    fonts_dir = os.path.join(script_dir, "fonts")
+    if os.path.exists(fonts_dir):
+        for font_file in os.listdir(fonts_dir):
+            if font_file.endswith(".ttf"):
+                font_path = os.path.join(fonts_dir, font_file)
+                QFontDatabase.addApplicationFont(font_path)
+    app_font = QFont()
+    app_font.setFamilies(["Open Sans", "Noto Color Emoji", "Segoe UI Emoji", "Apple Color Emoji", "Emoji"])
+    app.setFont(app_font)
+    
     logo_path = os.path.join(script_dir, "logo.svg")
     app.setWindowIcon(QIcon(logo_path))
     

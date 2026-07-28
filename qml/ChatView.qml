@@ -12,6 +12,39 @@ Item {
     property string filterText: searchInput.text.toLowerCase().trim()
     property bool sidebarCollapsed: false
 
+    function confirmSendFile(url) {
+        if (!url || xmppBackend.activeChatJid === "") return;
+        sendFileConfirmDialog.fileUrl = url;
+        sendFileConfirmDialog.fileSize = xmppBackend.getFormattedFileSize(url);
+        sendFileConfirmDialog.captionText = "";
+        sendFileConfirmDialog.open();
+    }
+
+    function showImagePreview(url) {
+        imagePreviewDialog.imageSource = url;
+        imagePreviewDialog.open();
+    }
+
+    function getHeaderAvatarGradient(nameStr) {
+        var colors = [
+            ["#ff845e", "#d45246"],
+            ["#9ad164", "#46ba43"],
+            ["#e5ca77", "#d09306"],
+            ["#518ffa", "#366ecf"],
+            ["#b694f9", "#6c61df"],
+            ["#ff8aac", "#d95574"],
+            ["#52b3e4", "#2c7dd4"],
+            ["#febb5b", "#f68136"]
+        ];
+        if (!nameStr) return colors[0];
+        var hash = 0;
+        for (var i = 0; i < nameStr.length; i++) {
+            hash = nameStr.charCodeAt(i) + ((hash << 5) - hash);
+        }
+        var idx = Math.abs(hash) % colors.length;
+        return colors[idx];
+    }
+
     SplitView {
         anchors.fill: parent
         orientation: Qt.Horizontal
@@ -128,6 +161,7 @@ Item {
                     Layout.fillHeight: true
                     clip: true
                     model: chatsListModel
+                    interactive: false
                     
                     // Expose filterText to delegates
                     property string filterText: root.filterText
@@ -137,6 +171,19 @@ Item {
                     // Spacer at the bottom
                     ScrollBar.vertical: ScrollBar {
                         policy: ScrollBar.AsNeeded
+                    }
+                    
+                    // Speed up wheel scrolling using a pass-through MouseArea
+                    MouseArea {
+                        anchors.fill: parent
+                        acceptedButtons: Qt.NoButton
+                        onWheel: (wheel) => {
+                            if (rosterList.contentHeight > rosterList.height && wheel.angleDelta.y !== 0) {
+                                var newY = rosterList.contentY - wheel.angleDelta.y * 0.6;
+                                rosterList.contentY = Math.max(rosterList.originY, Math.min(newY, rosterList.contentHeight - rosterList.height));
+                                wheel.accepted = true;
+                            }
+                        }
                     }
                 }
                 
@@ -186,13 +233,17 @@ Item {
                 }
             }
             
-            // Active Chat Interface
-            ColumnLayout {
+            // Active Chat Interface Container
+            Item {
                 anchors.fill: parent
                 visible: xmppBackend.activeChatJid !== ""
-                spacing: 0
-                                // Active Contact Header
-                Rectangle {
+
+                ColumnLayout {
+                    anchors.fill: parent
+                    spacing: 0
+
+                    // Active Contact Header
+                    Rectangle {
                     Layout.fillWidth: true
                     height: 56
                     color: "#11132240"
@@ -235,13 +286,59 @@ Item {
                             }
                         }
                         
-                        Text {
-                            text: xmppBackend.activeChatJid
-                            color: window.colText
-                            font.pixelSize: 15
-                            font.bold: true
+                        // Active Contact Avatar
+                        Rectangle {
+                            width: 36
+                            height: 36
+                            radius: 4
+                            clip: true
+                            Layout.alignment: Qt.AlignVCenter
+                            
+                            gradient: Gradient {
+                                GradientStop { position: 0.0; color: root.getHeaderAvatarGradient(xmppBackend.activeChatJid)[0] }
+                                GradientStop { position: 1.0; color: root.getHeaderAvatarGradient(xmppBackend.activeChatJid)[1] }
+                            }
+                            
+                            Text {
+                                anchors.centerIn: parent
+                                visible: headerAvatarImg.status !== Image.Ready
+                                text: xmppBackend.activeChatJid ? xmppBackend.activeChatJid.substring(0, 1).toUpperCase() : "?"
+                                color: "white"
+                                font.pixelSize: 16
+                                font.bold: true
+                            }
+                            
+                            Image {
+                                id: headerAvatarImg
+                                anchors.fill: parent
+                                source: xmppBackend.activeChatAvatar
+                                fillMode: Image.PreserveAspectCrop
+                                visible: status === Image.Ready
+                            }
+                        }
+
+                        // Contact JID / Name & Last Seen
+                        ColumnLayout {
                             Layout.fillWidth: true
-                            elide: Text.ElideRight
+                            Layout.alignment: Qt.AlignVCenter
+                            spacing: 1
+                            
+                            Text {
+                                text: xmppBackend.activeChatJid
+                                color: window.colText
+                                font.pixelSize: 14
+                                font.bold: true
+                                elide: Text.ElideRight
+                                Layout.fillWidth: true
+                            }
+                            
+                            Text {
+                                text: xmppBackend.activeChatLastSeen
+                                color: window.colMuted
+                                font.pixelSize: 11
+                                elide: Text.ElideRight
+                                Layout.fillWidth: true
+                            }
                         }
                         
                         RowLayout {
@@ -317,11 +414,11 @@ Item {
                     model: chatModel
                     delegate: MessageDelegate {}
                     boundsBehavior: Flickable.StopAtBounds
-                    interactive: contentHeight > height
+                    interactive: false
                     
-                    // Align messages to the bottom when history is short
-                    topMargin: Math.max(0, height - contentHeight)
-                    Behavior on topMargin { NumberAnimation { duration: 150; easing.type: Easing.OutQuad } }
+                    // Align messages to bottom when history is shorter than view height (without animation to prevent scroll bounds desync)
+                    topMargin: Math.max(8, height - contentHeight)
+                    bottomMargin: 8
                     
                     ScrollBar.vertical: ScrollBar {
                         policy: ScrollBar.AsNeeded
@@ -333,8 +430,9 @@ Item {
                         acceptedButtons: Qt.NoButton
                         onWheel: (wheel) => {
                             if (chatHistoryView.contentHeight > chatHistoryView.height && wheel.angleDelta.y !== 0) {
-                                var newY = chatHistoryView.contentY - wheel.angleDelta.y * 0.6;
-                                chatHistoryView.contentY = Math.max(chatHistoryView.originY - chatHistoryView.topMargin, Math.min(newY, chatHistoryView.contentHeight - chatHistoryView.height));
+                                var newY = chatHistoryView.contentY - wheel.angleDelta.y * 0.4;
+                                var maxY = Math.max(chatHistoryView.originY, chatHistoryView.contentHeight - chatHistoryView.height);
+                                chatHistoryView.contentY = Math.max(chatHistoryView.originY, Math.min(newY, maxY));
                                 wheel.accepted = true;
                             }
                         }
@@ -526,6 +624,16 @@ Item {
                                 color: "transparent"
                             }
                             
+                            Keys.onPressed: (event) => {
+                                if ((event.key === Qt.Key_V) && (event.modifiers & Qt.ControlModifier)) {
+                                    var clipUrl = xmppBackend.getClipboardImageOrFile();
+                                    if (clipUrl && clipUrl !== "") {
+                                        event.accepted = true;
+                                        root.confirmSendFile(clipUrl);
+                                    }
+                                }
+                            }
+                            
                             onAccepted: {
                                 if (text.trim() !== "") {
                                     xmppBackend.sendMessage(text.trim())
@@ -563,14 +671,308 @@ Item {
                     }
                 }
             }
+
+                DropArea {
+                    id: chatDropArea
+                    anchors.fill: parent
+                    keys: ["text/uri-list"]
+                    
+                    onEntered: (drag) => {
+                        if (drag.hasUrls) {
+                            drag.accept(Qt.CopyAction);
+                        }
+                    }
+                    
+                    onDropped: (drop) => {
+                        if (drop.hasUrls && drop.urls.length > 0) {
+                            var url = drop.urls[0].toString();
+                            root.confirmSendFile(url);
+                            drop.accept();
+                        }
+                    }
+                }
+                
+                // Visual Drop Overlay
+                Rectangle {
+                    anchors.fill: parent
+                    z: 99
+                    visible: chatDropArea.containsDrag
+                    color: "#0f172ae6"
+                    border.color: window.colPrimary
+                    border.width: 3
+                    radius: 8
+                    
+                    ColumnLayout {
+                        anchors.centerIn: parent
+                        spacing: 12
+                        
+                        Image {
+                            Layout.alignment: Qt.AlignHCenter
+                            width: 48
+                            height: 48
+                            source: "icons/attach_file_white.svg"
+                            sourceSize: Qt.size(48, 48)
+                        }
+                        
+                        Text {
+                            text: "Drop image or file to send"
+                            color: "white"
+                            font.pixelSize: 18
+                            font.bold: true
+                            Layout.alignment: Qt.AlignHCenter
+                        }
+                        
+                        Text {
+                            text: "Sending to " + xmppBackend.activeChatJid
+                            color: window.colMuted
+                            font.pixelSize: 13
+                            Layout.alignment: Qt.AlignHCenter
+                        }
+                    }
+                }
+            }
         }
     }
-    
+
     FileDialog {
         id: fileDialog
         title: "Select File to Upload"
         onAccepted: {
-            xmppBackend.uploadFile(selectedFile.toString())
+            root.confirmSendFile(selectedFile.toString())
+        }
+    }
+
+    Dialog {
+        id: sendFileConfirmDialog
+        anchors.centerIn: parent
+        modal: true
+        focus: true
+        padding: 24
+        
+        property string fileUrl: ""
+        property string fileSize: ""
+        property alias captionText: sendFileCaptionInput.text
+        
+        property bool isImageFile: {
+            if (!fileUrl) return false;
+            var t = fileUrl.toLowerCase();
+            return t.indexOf(".png") !== -1 || t.indexOf(".jpg") !== -1 || t.indexOf(".jpeg") !== -1 || t.indexOf(".gif") !== -1 || t.indexOf(".webp") !== -1 || t.indexOf(".bmp") !== -1;
+        }
+        
+        background: Rectangle {
+            color: window.colCard
+            border.color: window.colBorder
+            border.width: 1
+            radius: 12
+        }
+        
+        contentItem: ColumnLayout {
+            spacing: 16
+            width: 360
+            
+            Text {
+                text: "Confirm Send File"
+                color: window.colText
+                font.pixelSize: 18
+                font.bold: true
+                Layout.alignment: Qt.AlignLeft
+            }
+            
+            Text {
+                text: "Send file to: " + xmppBackend.activeChatJid
+                color: window.colMuted
+                font.pixelSize: 13
+                elide: Text.ElideRight
+                Layout.fillWidth: true
+            }
+            
+            // Preview Container
+            Rectangle {
+                Layout.fillWidth: true
+                implicitHeight: sendFileConfirmDialog.isImageFile ? 220 : 70
+                color: window.colInputBg
+                border.color: window.colBorder
+                radius: 8
+                clip: true
+                
+                Image {
+                    visible: sendFileConfirmDialog.isImageFile
+                    anchors.fill: parent
+                    anchors.margins: 8
+                    source: sendFileConfirmDialog.fileUrl
+                    fillMode: Image.PreserveAspectFit
+                    asynchronous: true
+                }
+                
+                RowLayout {
+                    visible: !sendFileConfirmDialog.isImageFile
+                    anchors.fill: parent
+                    anchors.margins: 12
+                    spacing: 12
+                    
+                    Image {
+                        width: 36
+                        height: 36
+                        source: "icons/attach_file_white.svg"
+                        sourceSize: Qt.size(36, 36)
+                    }
+                    
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: 2
+                        
+                        Text {
+                            text: {
+                                var parts = sendFileConfirmDialog.fileUrl.split("/");
+                                return parts[parts.length - 1] || "Selected File";
+                            }
+                            color: window.colText
+                            font.pixelSize: 13
+                            font.bold: true
+                            elide: Text.ElideMiddle
+                            Layout.fillWidth: true
+                        }
+                        
+                        Text {
+                            text: sendFileConfirmDialog.fileSize
+                            color: window.colMuted
+                            font.pixelSize: 11
+                        }
+                    }
+                }
+            }
+            
+            // Optional Caption Input
+            Rectangle {
+                Layout.fillWidth: true
+                height: 38
+                color: window.colInputBg
+                border.color: window.colBorder
+                radius: 6
+                
+                TextField {
+                    id: sendFileCaptionInput
+                    anchors.fill: parent
+                    anchors.leftMargin: 10
+                    anchors.rightMargin: 10
+                    placeholderText: "Add an optional caption..."
+                    placeholderTextColor: "#4b5563"
+                    color: window.colText
+                    font.pixelSize: 13
+                    background: Rectangle { color: "transparent" }
+                }
+            }
+            
+            // Action Buttons
+            RowLayout {
+                spacing: 12
+                Layout.fillWidth: true
+                
+                Button {
+                    id: cancelSendFileBtn
+                    Layout.fillWidth: true
+                    implicitHeight: 36
+                    
+                    contentItem: Text {
+                        text: "Cancel"
+                        color: window.colText
+                        font.pixelSize: 13
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+                    
+                    background: Rectangle {
+                        color: cancelSendFileBtn.hovered ? "#33415540" : "transparent"
+                        border.color: window.colBorder
+                        radius: 6
+                    }
+                    
+                    onClicked: sendFileConfirmDialog.close()
+                }
+                
+                Button {
+                    id: confirmSendFileBtn
+                    Layout.fillWidth: true
+                    implicitHeight: 36
+                    
+                    contentItem: Text {
+                        text: "Send File"
+                        color: "white"
+                        font.bold: true
+                        font.pixelSize: 13
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+                    
+                    background: Rectangle {
+                        color: confirmSendFileBtn.down ? window.colPrimaryDark : (confirmSendFileBtn.hovered ? window.colAccent : window.colPrimary)
+                        radius: 6
+                    }
+                    
+                    onClicked: {
+                        var url = sendFileConfirmDialog.fileUrl;
+                        var caption = sendFileCaptionInput.text.trim();
+                        sendFileConfirmDialog.close();
+                        xmppBackend.uploadFile(url);
+                        if (caption !== "") {
+                            xmppBackend.sendMessage(caption);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Dialog {
+        id: imagePreviewDialog
+        anchors.centerIn: parent
+        modal: true
+        focus: true
+        padding: 0
+        property string imageSource: ""
+        
+        background: Rectangle {
+            color: "#1e293bcc"
+            radius: 12
+            border.color: window.colBorder
+            border.width: 1
+        }
+        
+        contentItem: Item {
+            implicitWidth: Math.min(root.width * 0.85, 700)
+            implicitHeight: Math.min(root.height * 0.85, 550)
+            
+            Image {
+                anchors.fill: parent
+                anchors.margins: 16
+                source: imagePreviewDialog.imageSource
+                fillMode: Image.PreserveAspectFit
+                asynchronous: true
+            }
+            
+            Button {
+                anchors.top: parent.top
+                anchors.right: parent.right
+                anchors.margins: 10
+                implicitWidth: 32
+                implicitHeight: 32
+                
+                contentItem: Text {
+                    text: "✕"
+                    color: "white"
+                    font.pixelSize: 16
+                    font.bold: true
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                }
+                
+                background: Rectangle {
+                    color: "#00000080"
+                    radius: 16
+                }
+                
+                onClicked: imagePreviewDialog.close()
+            }
         }
     }
 }

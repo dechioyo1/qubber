@@ -40,17 +40,18 @@ Item {
         anchors.leftMargin: 16
         anchors.rightMargin: 16
         
-        // Dynamically compute width using unwrapped dummyText implicitWidth
+        // Dynamically compute width using unwrapped dummyText implicitWidth or bounded image width
         width: root.isImg
-            ? (root.isGif ? gifImage.width : staticImage.width) + 24
+            ? (root.isGif ? gifImage.width : staticImage.width)
             : Math.min(root.width * 0.6, Math.max(dummyText.implicitWidth + 24, 60))
         spacing: 3
 
         Rectangle {
             id: bubbleRect
             Layout.fillWidth: true
+            clip: true
             implicitHeight: root.isImg
-                ? (root.isGif ? gifImage.height : staticImage.height) + 16
+                ? (root.isGif ? gifImage.height : staticImage.height)
                 : messageText.implicitHeight + 16
             radius: 14
             
@@ -61,11 +62,12 @@ Item {
             Text {
                 id: messageText
                 visible: !root.isImg
-                anchors.fill: parent
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.top: parent.top
                 anchors.leftMargin: 12
                 anchors.rightMargin: 12
                 anchors.topMargin: 8
-                anchors.bottomMargin: 8
                 text: model.body
                 color: model.isMe ? window.msgOutText : window.msgInText
                 font.pixelSize: 14
@@ -76,12 +78,14 @@ Item {
                 id: staticImage
                 visible: root.isImg && !root.isGif
                 anchors.centerIn: parent
-                fillMode: Image.PreserveAspectFit
+                fillMode: Image.PreserveAspectCrop
                 source: (root.isImg && !root.isGif) ? model.body : ""
                 asynchronous: true
                 
-                width: sourceSize.width > 0 ? Math.min(220, sourceSize.width) : 120
-                height: sourceSize.width > 0 ? (width * sourceSize.height / sourceSize.width) : 120
+                width: Math.min(root.width * 0.6, 260)
+                height: (sourceSize.width > 0 && sourceSize.height > 0)
+                    ? Math.min(260, Math.max(120, Math.round(width * sourceSize.height / sourceSize.width)))
+                    : 160
                 
                 Rectangle {
                     anchors.fill: parent
@@ -99,12 +103,14 @@ Item {
                 id: gifImage
                 visible: root.isImg && root.isGif
                 anchors.centerIn: parent
-                fillMode: Image.PreserveAspectFit
+                fillMode: Image.PreserveAspectCrop
                 source: (root.isImg && root.isGif) ? model.body : ""
                 asynchronous: true
                 
-                width: sourceSize.width > 0 ? Math.min(220, sourceSize.width) : 120
-                height: sourceSize.width > 0 ? (width * sourceSize.height / sourceSize.width) : 120
+                width: Math.min(root.width * 0.6, 260)
+                height: (sourceSize.width > 0 && sourceSize.height > 0)
+                    ? Math.min(260, Math.max(120, Math.round(width * sourceSize.height / sourceSize.width)))
+                    : 160
                 
                 Rectangle {
                     anchors.fill: parent
@@ -120,11 +126,21 @@ Item {
 
             MouseArea {
                 anchors.fill: parent
-                acceptedButtons: Qt.RightButton
+                acceptedButtons: Qt.LeftButton | Qt.RightButton
                 cursorShape: Qt.PointingHandCursor
                 onClicked: (mouse) => {
                     if (mouse.button === Qt.RightButton) {
                         messageContextMenu.popup()
+                    } else if (mouse.button === Qt.LeftButton && root.isImg) {
+                        var view = ListView.view;
+                        var p = root.parent;
+                        while (p) {
+                            if (p.objectName === "chatView") {
+                                p.showImagePreview(model.body);
+                                break;
+                            }
+                            p = p.parent;
+                        }
                     }
                 }
             }

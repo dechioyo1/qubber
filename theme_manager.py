@@ -467,6 +467,22 @@ class ThemeManager(QObject):
     def reloadTheme(self):
         self.load_theme()
 
+    @Slot(str)
+    def loadThemeFromFile(self, file_path):
+        import shutil
+        import urllib.parse
+        import urllib.request
+        if file_path.startswith("file://"):
+            parsed = urllib.parse.urlparse(file_path)
+            file_path = urllib.request.url2pathname(parsed.path)
+        try:
+            os.makedirs(os.path.dirname(self.theme_path), exist_ok=True)
+            shutil.copyfile(file_path, self.theme_path)
+            self.load_theme()
+            logging.info(f"Theme loaded successfully from {file_path}")
+        except Exception as e:
+            logging.error(f"Failed to load theme from file: {e}")
+
     def load_theme(self):
         self._colors = parse_telegram_theme(self.theme_path)
         self.themeChanged.emit()

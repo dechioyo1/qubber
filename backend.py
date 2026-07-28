@@ -1,5 +1,7 @@
 import asyncio
 import logging
+import hashlib
+import base64
 from datetime import datetime
 from PySide6.QtCore import QObject, Signal, Slot, Property, QSettings, QStandardPaths
 import slixmpp
@@ -7,11 +9,17 @@ import sqlite3
 import os
 import urllib.parse
 import urllib.request
+import keyring
+from keyring.errors import PasswordDeleteError
+
+KEYRING_SERVICE = "Qubber"
 
 class XmppBackend(QObject):
     connectionStatusChanged = Signal(str)
     activeChatJidChanged = Signal(str)
     myJidChanged = Signal(str)
+    myPresenceChanged = Signal()
+    activeChatDetailsChanged = Signal()
     subscriptionRequested = Signal(str)
 
     def __init__(self, roster_model, chats_list_model, chat_model, parent=None):
@@ -23,6 +31,8 @@ class XmppBackend(QObject):
         self._connection_status = "Disconnected"
         self._active_chat_jid = ""
         self._my_jid = ""
+        self._my_status = "available"
+        self._my_status_message = ""
         
         self.client = None
         
@@ -37,10 +47,13 @@ class XmppBackend(QObject):
         self._temp_remember_me = False
         self._temp_host = ""
         self._temp_port = ""
+        self._migrate_credentials_to_keyring()
         
-        # Database Setup
+        # Database & Cache Setup
         data_dir = QStandardPaths.writableLocation(QStandardPaths.AppLocalDataLocation)
         os.makedirs(data_dir, exist_ok=True)
+        self.cache_dir = os.path.join(data_dir, "cache", "avatars")
+        os.makedirs(self.cache_dir, exist_ok=True)
         self.db_path = os.path.join(data_dir, "qubber.db")
         self.db_conn = sqlite3.connect(self.db_path)
         self._init_db()
@@ -72,15 +85,59 @@ class XmppBackend(QObject):
         if self._my_jid != jid:
             self._my_jid = jid
             self.myJidChanged.emit(jid)
+
+    @Property(str, notify=myPresenceChanged)
+    def myStatus(self):
+        return self._my_status
+
+    @Property(str, notify=myPresenceChanged)
+    def myStatusMessage(self):
+        return self._my_status_message
+
+    @Property(str, notify=activeChatDetailsChanged)
+    def activeChatAvatar(self):
+        if not self._active_chat_jid:
+            return ""
+        return self._get_avatar_file(self._active_chat_jid)
+
+    @Property(str, notify=activeChatDetailsChanged)
+    def activeChatLastSeen(self):
+        if not self._active_chat_jid:
+            return ""
+        status, status_msg = self._get_contact_presence(self._active_chat_jid)
+        if status != 'offline':
+            return status.capitalize() + (f" - {status_msg}" if status_msg else "")
+        # Check DB for cached last_seen
+        try:
+            cursor = self.db_conn.cursor()
+            cursor.execute("SELECT last_seen FROM contacts WHERE jid = ?", (self._active_chat_jid,))
+            row = cursor.fetchone()
+            if row and row[0]:
+                return row[0]
+        except Exception:
+            pass
+        return "Offline"
             
     # --- Saved Credentials Properties ---
     @Property(str)
     def savedJid(self):
+        try:
+            val = keyring.get_password(KEYRING_SERVICE, "jid")
+            if val:
+                return val
+        except Exception as e:
+            logging.error(f"Error reading JID from keyring: {e}")
         return self.settings.value("jid", "")
 
     @Property(str)
     def savedPassword(self):
         if self.savedRememberMe:
+            try:
+                val = keyring.get_password(KEYRING_SERVICE, "password")
+                if val:
+                    return val
+            except Exception as e:
+                logging.error(f"Error reading password from keyring: {e}")
             return self.settings.value("password", "")
         return ""
 
@@ -121,6 +178,10 @@ class XmppBackend(QObject):
         
         # Register plugins
         self.client.register_plugin('xep_0030') # Service Discovery
+        self.client.register_plugin('xep_0054') # vCard-temp (Avatars)
+        self.client.register_plugin('xep_0153') # vCard-Based Avatars
+        self.client.register_plugin('xep_0084') # User Avatar
+        self.client.register_plugin('xep_0012') # Last Activity
         self.client.register_plugin('xep_0184') # Message Delivery Receipts
         self.client.plugin['xep_0184'].auto_ack = True
         self.client.plugin['xep_0184'].auto_request = False
@@ -173,10 +234,17 @@ class XmppBackend(QObject):
     @Slot(str)
     def selectChat(self, jid):
         self.set_active_chat_jid(jid)
+        self.activeChatDetailsChanged.emit()
         # Clear unread count
         self._unread_counts[jid] = 0
         self.roster_model.clearUnread(jid)
         self.chats_list_model.clearUnread(jid)
+        
+        # Spawns async fetch for avatar and last seen if needed
+        asyncio.create_task(self._fetch_avatar_async(jid))
+        status, _ = self._get_contact_presence(jid)
+        if status == 'offline':
+            asyncio.create_task(self._fetch_last_seen_async(jid))
         
         # Load conversation from DB
         my_bare_jid = self.client.boundjid.bare if (self.client and self.client.boundjid) else self._my_jid.split('/')[0]
@@ -283,6 +351,9 @@ class XmppBackend(QObject):
 
     @Slot(str, str)
     def changePresence(self, show, status_msg):
+        self._my_status = show
+        self._my_status_message = status_msg
+        self.myPresenceChanged.emit()
         if not self.client:
             return
         pshow = None if show == "available" else show
@@ -334,13 +405,24 @@ class XmppBackend(QObject):
                 continue
             name = roster[jid]['name'] or jid.split('@')[0]
             status, status_msg = self._get_contact_presence(jid)
+            avatar = self._get_avatar_file(jid)
+            last_seen = self._get_cached_last_seen(jid)
+            
             roster_contacts.append({
                 'jid': jid,
                 'name': name,
                 'status': status,
                 'statusMessage': status_msg,
-                'unreadCount': self._unread_counts.get(jid, 0)
+                'unreadCount': self._unread_counts.get(jid, 0),
+                'avatar': avatar,
+                'lastSeen': last_seen
             })
+            
+            # Fetch avatar and last seen asynchronously in background
+            asyncio.create_task(self._fetch_avatar_async(jid))
+            if status == 'offline':
+                asyncio.create_task(self._fetch_last_seen_async(jid))
+                
         self.roster_model.set_contacts(roster_contacts)
         
         # Populate chats list model from SQLite database
@@ -404,8 +486,19 @@ class XmppBackend(QObject):
             return
             
         status, status_msg = self._get_contact_presence(jid)
-        self.roster_model.update_contact(jid, status=status, statusMessage=status_msg)
-        self.chats_list_model.update_contact(jid, status=status, statusMessage=status_msg)
+        last_seen = ""
+        if status == 'offline':
+            last_seen = "Last seen just now"
+            self._update_cached_last_seen(jid, last_seen)
+            asyncio.create_task(self._fetch_last_seen_async(jid))
+            
+        if not self._get_avatar_file(jid):
+            asyncio.create_task(self._fetch_avatar_async(jid))
+            
+        self.roster_model.update_contact(jid, status=status, statusMessage=status_msg, lastSeen=last_seen)
+        self.chats_list_model.update_contact(jid, status=status, statusMessage=status_msg, lastSeen=last_seen)
+        if jid == self._active_chat_jid:
+            self.activeChatDetailsChanged.emit()
 
     async def _on_subscribe_request(self, presence):
         jid = presence['from'].bare
@@ -453,15 +546,165 @@ class XmppBackend(QObject):
             return 'offline', ''
 
     def save_credentials(self, jid, password, host, port, remember_me):
-        self.settings.setValue("jid", jid)
         self.settings.setValue("host", host or "")
         self.settings.setValue("port", port or "")
         self.settings.setValue("remember_me", remember_me)
-        if remember_me:
-            self.settings.setValue("password", password)
-        else:
-            self.settings.remove("password")
+        
+        # Erase plain-text credentials from settings file if present
+        self.settings.remove("jid")
+        self.settings.remove("password")
         self.settings.sync()
+
+        if remember_me:
+            try:
+                keyring.set_password(KEYRING_SERVICE, "jid", jid)
+                keyring.set_password(KEYRING_SERVICE, "password", password)
+                logging.info("Credentials saved securely in system keyring.")
+            except Exception as e:
+                logging.error(f"Failed to store credentials in keyring: {e}")
+        else:
+            try:
+                keyring.delete_password(KEYRING_SERVICE, "jid")
+            except Exception:
+                pass
+            try:
+                keyring.delete_password(KEYRING_SERVICE, "password")
+            except Exception:
+                pass
+            logging.info("Cleared stored credentials from system keyring.")
+
+    def _migrate_credentials_to_keyring(self):
+        old_jid = self.settings.value("jid", "")
+        old_pwd = self.settings.value("password", "")
+        if old_jid or old_pwd:
+            logging.info("Migrating plain-text credentials from settings file to keyring...")
+            if self.savedRememberMe:
+                if old_jid:
+                    try:
+                        keyring.set_password(KEYRING_SERVICE, "jid", old_jid)
+                    except Exception as e:
+                        logging.error(f"Migration error saving JID to keyring: {e}")
+                if old_pwd:
+                    try:
+                        keyring.set_password(KEYRING_SERVICE, "password", old_pwd)
+                    except Exception as e:
+                        logging.error(f"Migration error saving password to keyring: {e}")
+            self.settings.remove("jid")
+            self.settings.remove("password")
+            self.settings.sync()
+            logging.info("Migration finished: Removed plain-text credentials from settings file.")
+
+    def _get_avatar_file(self, jid):
+        if not jid:
+            return ""
+        try:
+            cursor = self.db_conn.cursor()
+            cursor.execute("SELECT avatar_path FROM contacts WHERE jid = ?", (jid,))
+            row = cursor.fetchone()
+            if row and row[0]:
+                path = row[0].replace("file://", "")
+                if os.path.exists(path):
+                    return row[0]
+        except Exception:
+            pass
+        safe_jid = hashlib.sha1(jid.encode('utf-8')).hexdigest()
+        filepath = os.path.join(self.cache_dir, f"{safe_jid}.png")
+        if os.path.exists(filepath):
+            return "file://" + filepath
+        return ""
+
+    def _get_cached_last_seen(self, jid):
+        try:
+            cursor = self.db_conn.cursor()
+            cursor.execute("SELECT last_seen FROM contacts WHERE jid = ?", (jid,))
+            row = cursor.fetchone()
+            if row and row[0]:
+                return row[0]
+        except Exception:
+            pass
+        return ""
+
+    def _update_cached_last_seen(self, jid, last_seen):
+        try:
+            cursor = self.db_conn.cursor()
+            cursor.execute("""
+                INSERT INTO contacts (jid, last_seen) VALUES (?, ?)
+                ON CONFLICT(jid) DO UPDATE SET last_seen = excluded.last_seen
+            """, (jid, last_seen))
+            self.db_conn.commit()
+        except Exception as e:
+            logging.debug(f"Failed to update last_seen in DB: {e}")
+
+    async def _fetch_avatar_async(self, jid):
+        if not self.client or not self.client.is_connected() or not jid:
+            return
+        try:
+            logging.info(f"Fetching vCard avatar for {jid}...")
+            vcard = await self.client['xep_0054'].get_vcard(jid=jid)
+            binval_text = None
+            if vcard is not None:
+                xml_elem = vcard.xml if hasattr(vcard, 'xml') else vcard
+                for elem in xml_elem.iter():
+                    if elem.tag.endswith('BINVAL') and elem.text:
+                        binval_text = elem.text.strip()
+                        break
+            if binval_text:
+                # Remove whitespace and newlines from base64 string
+                clean_b64 = "".join(binval_text.split())
+                raw_bytes = base64.b64decode(clean_b64)
+                safe_jid = hashlib.sha1(jid.encode('utf-8')).hexdigest()
+                filepath = os.path.join(self.cache_dir, f"{safe_jid}.png")
+                with open(filepath, "wb") as f:
+                    f.write(raw_bytes)
+                avatar_url = "file://" + filepath
+                logging.info(f"Successfully downloaded and cached avatar for {jid} to {filepath}")
+                
+                cursor = self.db_conn.cursor()
+                cursor.execute("""
+                    INSERT INTO contacts (jid, avatar_path) VALUES (?, ?)
+                    ON CONFLICT(jid) DO UPDATE SET avatar_path = excluded.avatar_path
+                """, (jid, avatar_url))
+                self.db_conn.commit()
+                
+                self.roster_model.update_contact(jid, avatar=avatar_url)
+                self.chats_list_model.update_contact(jid, avatar=avatar_url)
+                if jid == self._active_chat_jid:
+                    self.activeChatDetailsChanged.emit()
+            else:
+                logging.info(f"No photo BINVAL data found in vCard for {jid}")
+        except Exception as e:
+            logging.info(f"Could not fetch avatar for {jid}: {e}")
+
+    async def _fetch_last_seen_async(self, jid):
+        if not self.client or not self.client.is_connected():
+            return
+        try:
+            iq = self.client.make_iq_get(to=jid)
+            iq['query'] = 'jabber:iq:last'
+            response = await iq.send()
+            seconds = response['query']['seconds']
+            if seconds is not None and seconds != '':
+                secs = int(seconds)
+                last_seen_str = self._format_last_seen(secs)
+                self._update_cached_last_seen(jid, last_seen_str)
+                self.roster_model.update_contact(jid, lastSeen=last_seen_str)
+                self.chats_list_model.update_contact(jid, lastSeen=last_seen_str)
+                if jid == self._active_chat_jid:
+                    self.activeChatDetailsChanged.emit()
+        except Exception as e:
+            logging.debug(f"Could not query last activity for {jid}: {e}")
+
+    def _format_last_seen(self, seconds):
+        if seconds < 60:
+            return "Last seen just now"
+        mins = seconds // 60
+        if mins < 60:
+            return f"Last seen {mins}m ago"
+        hours = mins // 60
+        if hours < 24:
+            return f"Last seen {hours}h ago"
+        days = hours // 24
+        return f"Last seen {days}d ago"
 
     def _init_db(self):
         try:
@@ -480,11 +723,26 @@ class XmppBackend(QObject):
                 )
             """)
             
-            # Check if status column exists in messages (migration for existing DBs)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS contacts (
+                    jid TEXT PRIMARY KEY,
+                    name TEXT,
+                    avatar_path TEXT,
+                    last_seen TEXT
+                )
+            """)
+            
             cursor.execute("PRAGMA table_info(messages)")
             columns = [info[1] for info in cursor.fetchall()]
             if 'status' not in columns:
                 cursor.execute("ALTER TABLE messages ADD COLUMN status TEXT DEFAULT 'sent'")
+
+            cursor.execute("PRAGMA table_info(contacts)")
+            contact_cols = [info[1] for info in cursor.fetchall()]
+            if 'avatar_path' not in contact_cols:
+                cursor.execute("ALTER TABLE contacts ADD COLUMN avatar_path TEXT")
+            if 'last_seen' not in contact_cols:
+                cursor.execute("ALTER TABLE contacts ADD COLUMN last_seen TEXT")
                 
             cursor.execute("""
                 CREATE INDEX IF NOT EXISTS idx_messages_chat 
@@ -560,7 +818,7 @@ class XmppBackend(QObject):
                 
                 # Fetch last message details from SQLite DB
                 cursor.execute("""
-                    SELECT body, timestamp, is_me, status FROM messages 
+                    SELECT body, timestamp, is_me, status, id FROM messages 
                     WHERE account_jid = ? AND peer_jid = ? 
                     ORDER BY created_at DESC, id DESC LIMIT 1
                 """, (my_bare_jid, jid))
@@ -570,12 +828,14 @@ class XmppBackend(QObject):
                 last_message_time = ""
                 last_message_is_me = False
                 last_message_status = "sent"
+                last_msg_id = 0
                 
                 if last_msg_row:
                     last_message = last_msg_row[0] or ""
                     last_message_time = last_msg_row[1] or ""
                     last_message_is_me = bool(last_msg_row[2])
                     last_message_status = last_msg_row[3] or "sent"
+                    last_msg_id = last_msg_row[4] or 0
                 
                 chat_contacts.append({
                     'jid': jid,
@@ -586,10 +846,13 @@ class XmppBackend(QObject):
                     'lastMessage': last_message,
                     'lastMessageTime': last_message_time,
                     'lastMessageIsMe': last_message_is_me,
-                    'lastMessageStatus': last_message_status
+                    'lastMessageStatus': last_message_status,
+                    'lastMsgId': last_msg_id,
+                    'avatar': self._get_avatar_file(jid),
+                    'lastSeen': self._get_cached_last_seen(jid)
                 })
             
-            self.chats_list_model.set_contacts(chat_contacts)
+            self.chats_list_model.set_contacts(chat_contacts, sort_by_latest=True)
         except Exception as e:
             logging.error(f"Failed to populate chats list model: {e}", exc_info=True)
 
@@ -618,3 +881,45 @@ class XmppBackend(QObject):
             self.update_chats_list_model()
         except Exception as e:
             logging.error(f"Failed to delete message: {e}", exc_info=True)
+
+    @Slot(result=str)
+    def getClipboardImageOrFile(self):
+        try:
+            from PySide6.QtGui import QGuiApplication
+            clipboard = QGuiApplication.clipboard()
+            if not clipboard:
+                return ""
+            mime = clipboard.mimeData()
+            if mime:
+                if mime.hasImage():
+                    img = clipboard.image()
+                    if not img.isNull():
+                        timestamp = int(datetime.now().timestamp())
+                        temp_path = os.path.join(self.cache_dir, f"paste_{timestamp}.png")
+                        img.save(temp_path, "PNG")
+                        logging.info(f"Saved clipboard image to {temp_path}")
+                        return "file://" + temp_path
+                if mime.hasUrls():
+                    urls = mime.urls()
+                    if urls:
+                        return urls[0].toString()
+        except Exception as e:
+            logging.error(f"Failed to check clipboard image/file: {e}", exc_info=True)
+        return ""
+
+    @Slot(str, result=str)
+    def getFormattedFileSize(self, file_url):
+        try:
+            parsed = urllib.parse.urlparse(file_url)
+            path = urllib.request.url2pathname(parsed.path)
+            if os.path.exists(path):
+                size = os.path.getsize(path)
+                if size < 1024:
+                    return f"{size} B"
+                elif size < 1024 * 1024:
+                    return f"{size / 1024:.1f} KB"
+                else:
+                    return f"{size / (1024 * 1024):.1f} MB"
+        except Exception:
+            pass
+        return ""
