@@ -541,7 +541,8 @@ class XmppBackend(QObject):
             if self.omemo_mgr.is_encryption_enabled(mto):
                 if self.client and 'xep_0384' in self.client.plugin:
                     try:
-                        encrypted_msg, errors = await self.client.plugin['xep_0384'].encrypt_message(msg, mto)
+                        recipient_jid = slixmpp.JID(mto)
+                        encrypted_msg, errors = await self.client.plugin['xep_0384'].encrypt_message(msg, recipient_jid)
                         if encrypted_msg:
                             msg = encrypted_msg
                             logging.info(f"Successfully encrypted OMEMO message via xep_0384 for {mto}")
@@ -679,9 +680,13 @@ class XmppBackend(QObject):
         # Send initial presence
         self.client.send_presence()
         
-        # Publish OMEMO device list and key bundle to PEP
-        asyncio.create_task(self._publish_omemo_device_list_async())
-        asyncio.create_task(self._publish_omemo_bundle_async())
+        # Initialize slixmpp_omemo XEP-0384 session manager (publishes matching device list & bundle stanzas)
+        if self.client and 'xep_0384' in self.client.plugin:
+            try:
+                logging.info("Initializing slixmpp-omemo XEP-0384 session manager...")
+                asyncio.create_task(self.client.plugin['xep_0384'].get_session_manager())
+            except Exception as e:
+                logging.error(f"Failed to initialize xep_0384 session manager: {e}")
 
         # Fetch roster
         try:
@@ -815,13 +820,21 @@ class XmppBackend(QObject):
     def cleanOmemoKeys(self):
         logging.info("Cleaning all local and cached OMEMO keys on user request...")
         success = self.omemo_mgr.clear_all_keys()
-        if success and self.client and self.client.is_connected():
-            asyncio.create_task(self._publish_omemo_device_list_async())
-            asyncio.create_task(self._publish_omemo_bundle_async())
+        try:
+            data_dir = QStandardPaths.writableLocation(QStandardPaths.AppLocalDataLocation)
+            storage_path = Path(data_dir) / "omemo_store.json"
+            if storage_path.exists():
+                storage_path.unlink()
+                logging.info("Deleted slixmpp-omemo JSONStorage file.")
+        except Exception as e:
+            logging.error(f"Failed to delete omemo_store.json: {e}")
+
+        if self.client and self.client.is_connected() and 'xep_0384' in self.client.plugin:
+            asyncio.create_task(self.client.plugin['xep_0384'].get_session_manager())
             if self._active_chat_jid:
-                asyncio.create_task(self._fetch_omemo_peer_keys_async(self._active_chat_jid))
+                asyncio.create_task(self.client.plugin['xep_0384'].refresh_device_lists(self._active_chat_jid))
         self.activeChatDetailsChanged.emit()
-        return success
+        return True
 
     def _update_roster_model(self):
         if not self.client or not self.client.boundjid:

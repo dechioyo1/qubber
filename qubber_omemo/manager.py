@@ -156,7 +156,7 @@ class OmemoManager:
         self.sessions[key] = session
         return session, x3dh_header
 
-    def encrypt_payload(self, peer_jid: str, plaintext_body: str) -> tuple[dict, str]:
+    def encrypt_payload(self, peer_jid: str, plaintext_body: str, target_device_ids: list[int] = None) -> tuple[dict, str]:
         """
         Encrypt payload for peer_jid devices.
         Returns:
@@ -175,7 +175,12 @@ class OmemoManager:
             ct_b64 = b64_encode(ciphertext)
             
             keys_map = {}
-            bundles = self.store.load_peer_bundles(bare_jid)
+            all_bundles = self.store.load_peer_bundles(bare_jid)
+            if target_device_ids is not None:
+                target_ids_set = {int(x) for x in target_device_ids}
+                bundles = [b for b in all_bundles if b[0] in target_ids_set]
+            else:
+                bundles = all_bundles
             logging.info(f"[OMEMO Manager] Encrypting message for {bare_jid} across {len(bundles)} cached target device(s)...")
             
             if len(bundles) == 0:
