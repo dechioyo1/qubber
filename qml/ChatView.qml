@@ -11,6 +11,7 @@ Item {
     property string hoveredStatus: ""
     property string filterText: searchInput.text.toLowerCase().trim()
     property bool sidebarCollapsed: false
+    property bool showRightSidebar: false
 
     function confirmSendFile(url) {
         if (!url || xmppBackend.activeChatJid === "") return;
@@ -236,10 +237,15 @@ Item {
             // Active Chat Interface Container
             Item {
                 anchors.fill: parent
-                visible: xmppBackend.activeChatJid !== ""
+                visible: xmppBackend ? xmppBackend.activeChatJid !== "" : false
 
                 ColumnLayout {
-                    anchors.fill: parent
+                    anchors.top: parent.top
+                    anchors.bottom: parent.bottom
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.rightMargin: (root.showRightSidebar && (xmppBackend ? xmppBackend.activeChatJid !== "" : false)) ? 320 : 0
+                    Behavior on anchors.rightMargin { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
                     spacing: 0
 
                     // Active Contact Header
@@ -334,8 +340,9 @@ Item {
                             
                             Text {
                                 text: xmppBackend.activeChatLastSeen
-                                color: window.colMuted
+                                color: (xmppBackend.activeChatLastSeen === "typing...") ? window.colAccent : window.colMuted
                                 font.pixelSize: 11
+                                font.italic: xmppBackend.activeChatLastSeen === "typing..."
                                 elide: Text.ElideRight
                                 Layout.fillWidth: true
                             }
@@ -354,13 +361,128 @@ Item {
                                     anchors.centerIn: parent
                                     width: 20
                                     height: 20
-                                    source: lockIconBtn.hovered ? "icons/lock_white.svg" : "icons/lock_muted.svg"
+                                    source: {
+                                        var isOmemo = (xmppBackend && xmppBackend.activeChatEncryptionMode === "OMEMO");
+                                        if (isOmemo) return "icons/lock_primary.svg";
+                                        return lockIconBtn.hovered ? "icons/lock_white.svg" : "icons/lock_muted.svg";
+                                    }
                                     sourceSize: Qt.size(20, 20)
                                 }
                                 
                                 background: Rectangle {
-                                    color: lockIconBtn.hovered ? "#33415520" : "transparent"
+                                    property bool isOmemo: (xmppBackend && xmppBackend.activeChatEncryptionMode === "OMEMO")
+                                    color: isOmemo ? (lockIconBtn.hovered ? "#3b82f630" : "#3b82f615") : (lockIconBtn.hovered ? "#33415520" : "transparent")
+                                    border.color: isOmemo ? window.colAccent : "transparent"
+                                    border.width: isOmemo ? 1 : 0
                                     radius: 16
+                                }
+                                
+                                onClicked: encryptionMenu.open()
+                                
+                                Popup {
+                                    id: encryptionMenu
+                                    y: lockIconBtn.height + 4
+                                    x: -encryptionMenu.width + lockIconBtn.width
+                                    width: 220
+                                    padding: 8
+                                    modal: true
+                                    focus: true
+                                    closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+                                    
+                                    background: Rectangle {
+                                        color: window.colCard
+                                        border.color: window.colBorder
+                                        border.width: 1
+                                        radius: 14
+                                    }
+                                    
+                                    contentItem: ColumnLayout {
+                                        spacing: 4
+                                        
+                                        Button {
+                                            id: noEncBtn
+                                            Layout.fillWidth: true
+                                            implicitHeight: 40
+                                            
+                                            contentItem: RowLayout {
+                                                spacing: 10
+                                                Image {
+                                                    Layout.leftMargin: 8
+                                                    width: 18
+                                                    height: 18
+                                                    source: "icons/lock_muted.svg"
+                                                    sourceSize: Qt.size(18, 18)
+                                                }
+                                                Text {
+                                                    text: "No Encryption"
+                                                    color: noEncBtn.hovered ? "white" : window.colText
+                                                    font.pixelSize: 14
+                                                    verticalAlignment: Text.AlignVCenter
+                                                    Layout.fillWidth: true
+                                                }
+                                                Text {
+                                                    visible: xmppBackend.activeChatEncryptionMode === "No Encryption"
+                                                    text: "✓"
+                                                    color: window.colAccent
+                                                    font.pixelSize: 16
+                                                    font.bold: true
+                                                    Layout.rightMargin: 8
+                                                }
+                                            }
+                                            
+                                            background: Rectangle {
+                                                color: noEncBtn.hovered ? window.colPrimary : "transparent"
+                                                radius: 8
+                                            }
+                                            
+                                            onClicked: {
+                                                encryptionMenu.close()
+                                                xmppBackend.setEncryptionEnabled(xmppBackend.activeChatJid, false)
+                                            }
+                                        }
+                                        
+                                        Button {
+                                            id: omemoEncBtn
+                                            Layout.fillWidth: true
+                                            implicitHeight: 40
+                                            
+                                            contentItem: RowLayout {
+                                                spacing: 10
+                                                Image {
+                                                    Layout.leftMargin: 8
+                                                    width: 18
+                                                    height: 18
+                                                    source: "icons/lock_primary.svg"
+                                                    sourceSize: Qt.size(18, 18)
+                                                }
+                                                Text {
+                                                    text: "OMEMO (E2EE)"
+                                                    color: omemoEncBtn.hovered ? "white" : window.colText
+                                                    font.pixelSize: 14
+                                                    verticalAlignment: Text.AlignVCenter
+                                                    Layout.fillWidth: true
+                                                }
+                                                Text {
+                                                    visible: xmppBackend.activeChatEncryptionMode === "OMEMO"
+                                                    text: "✓"
+                                                    color: window.colAccent
+                                                    font.pixelSize: 16
+                                                    font.bold: true
+                                                    Layout.rightMargin: 8
+                                                }
+                                            }
+                                            
+                                            background: Rectangle {
+                                                color: omemoEncBtn.hovered ? window.colPrimary : "transparent"
+                                                radius: 8
+                                            }
+                                            
+                                            onClicked: {
+                                                encryptionMenu.close()
+                                                xmppBackend.setEncryptionEnabled(xmppBackend.activeChatJid, true)
+                                            }
+                                        }
+                                    }
                                 }
                             }
                             
@@ -380,6 +502,10 @@ Item {
                                 background: Rectangle {
                                     color: rightSidebarBtn.hovered ? "#33415520" : "transparent"
                                     radius: 16
+                                }
+                                
+                                onClicked: {
+                                    root.showRightSidebar = !root.showRightSidebar
                                 }
                             }
                             
@@ -486,18 +612,19 @@ Item {
                             
                             Popup {
                                 id: attachMenu
-                                y: -attachMenu.height - 4
+                                y: -attachMenu.height - 8
                                 x: 0
-                                width: 120
-                                padding: 6
+                                width: 220
+                                padding: 8
                                 modal: true
                                 focus: true
                                 closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
                                 
                                 background: Rectangle {
-                                    color: "#1e293b"
+                                    color: window.colCard
                                     border.color: window.colBorder
-                                    radius: 8
+                                    border.width: 1
+                                    radius: 14
                                 }
                                 
                                 contentItem: ColumnLayout {
@@ -506,34 +633,35 @@ Item {
                                     Button {
                                         id: attachImageBtn
                                         Layout.fillWidth: true
-                                        implicitHeight: 28
+                                        implicitHeight: 44
                                         
                                         contentItem: RowLayout {
-                                            spacing: 8
+                                            spacing: 14
                                             Image {
-                                                Layout.leftMargin: 8
-                                                width: 16
-                                                height: 16
+                                                Layout.leftMargin: 10
+                                                width: 24
+                                                height: 24
                                                 source: attachImageBtn.hovered ? "icons/image_white.svg" : "icons/image_muted.svg"
-                                                sourceSize: Qt.size(16, 16)
+                                                sourceSize: Qt.size(24, 24)
                                             }
                                             Text {
-                                                text: "Image"
+                                                text: "Photo or Video"
                                                 color: attachImageBtn.hovered ? "white" : window.colText
-                                                font.pixelSize: 12
+                                                font.pixelSize: 15
                                                 verticalAlignment: Text.AlignVCenter
+                                                Layout.fillWidth: true
                                             }
                                         }
                                         
                                         background: Rectangle {
                                             color: attachImageBtn.hovered ? window.colPrimary : "transparent"
-                                            radius: 6
+                                            radius: 10
                                         }
                                         
                                         onClicked: {
                                             attachMenu.close()
-                                            fileDialog.title = "Select Image to Upload"
-                                            fileDialog.nameFilters = [ "Image files (*.png *.jpg *.jpeg *.gif *.webp)" ]
+                                            fileDialog.title = "Select Image or Video to Upload"
+                                            fileDialog.nameFilters = [ "Media files (*.png *.jpg *.jpeg *.gif *.webp *.mp4 *.webm *.mkv)" ]
                                             fileDialog.open()
                                         }
                                     }
@@ -541,28 +669,29 @@ Item {
                                     Button {
                                         id: attachFileBtn
                                         Layout.fillWidth: true
-                                        implicitHeight: 28
+                                        implicitHeight: 44
                                         
                                         contentItem: RowLayout {
-                                            spacing: 8
+                                            spacing: 14
                                             Image {
-                                                Layout.leftMargin: 8
-                                                width: 16
-                                                height: 16
+                                                Layout.leftMargin: 10
+                                                width: 24
+                                                height: 24
                                                 source: attachFileBtn.hovered ? "icons/description_white.svg" : "icons/description_muted.svg"
-                                                sourceSize: Qt.size(16, 16)
+                                                sourceSize: Qt.size(24, 24)
                                             }
                                             Text {
                                                 text: "File"
                                                 color: attachFileBtn.hovered ? "white" : window.colText
-                                                font.pixelSize: 12
+                                                font.pixelSize: 15
                                                 verticalAlignment: Text.AlignVCenter
+                                                Layout.fillWidth: true
                                             }
                                         }
                                         
                                         background: Rectangle {
                                             color: attachFileBtn.hovered ? window.colPrimary : "transparent"
-                                            radius: 6
+                                            radius: 10
                                         }
                                         
                                         onClicked: {
@@ -576,28 +705,29 @@ Item {
                                     Button {
                                         id: attachLocationBtn
                                         Layout.fillWidth: true
-                                        implicitHeight: 28
+                                        implicitHeight: 44
                                         
                                         contentItem: RowLayout {
-                                            spacing: 8
+                                            spacing: 14
                                             Image {
-                                                Layout.leftMargin: 8
-                                                width: 16
-                                                height: 16
+                                                Layout.leftMargin: 10
+                                                width: 24
+                                                height: 24
                                                 source: attachLocationBtn.hovered ? "icons/location_on_white.svg" : "icons/location_on_muted.svg"
-                                                sourceSize: Qt.size(16, 16)
+                                                sourceSize: Qt.size(24, 24)
                                             }
                                             Text {
                                                 text: "Location"
                                                 color: attachLocationBtn.hovered ? "white" : window.colText
-                                                font.pixelSize: 12
+                                                font.pixelSize: 15
                                                 verticalAlignment: Text.AlignVCenter
+                                                Layout.fillWidth: true
                                             }
                                         }
                                         
                                         background: Rectangle {
                                             color: attachLocationBtn.hovered ? window.colPrimary : "transparent"
-                                            radius: 6
+                                            radius: 10
                                         }
                                         
                                         onClicked: {
@@ -634,8 +764,15 @@ Item {
                                 }
                             }
                             
+                            onTextChanged: {
+                                if (xmppBackend && xmppBackend.activeChatJid !== "") {
+                                    xmppBackend.sendTypingNotification(xmppBackend.activeChatJid, text.trim().length > 0)
+                                }
+                            }
+                            
                             onAccepted: {
                                 if (text.trim() !== "") {
+                                    xmppBackend.sendTypingNotification(xmppBackend.activeChatJid, false)
                                     xmppBackend.sendMessage(text.trim())
                                     text = ""
                                 }
@@ -672,63 +809,87 @@ Item {
                 }
             }
 
-                DropArea {
-                    id: chatDropArea
-                    anchors.fill: parent
-                    keys: ["text/uri-list"]
-                    
-                    onEntered: (drag) => {
-                        if (drag.hasUrls) {
-                            drag.accept(Qt.CopyAction);
-                        }
-                    }
-                    
-                    onDropped: (drop) => {
-                        if (drop.hasUrls && drop.urls.length > 0) {
-                            var url = drop.urls[0].toString();
-                            root.confirmSendFile(url);
-                            drop.accept();
-                        }
+            DropArea {
+                id: chatDropArea
+                anchors.top: parent.top
+                anchors.bottom: parent.bottom
+                anchors.left: parent.left
+                anchors.right: (root.showRightSidebar && (xmppBackend ? xmppBackend.activeChatJid !== "" : false)) ? contactSidebar.left : parent.right
+                keys: ["text/uri-list"]
+                
+                onEntered: (drag) => {
+                    if (drag.hasUrls) {
+                        drag.accept(Qt.CopyAction);
                     }
                 }
                 
-                // Visual Drop Overlay
-                Rectangle {
-                    anchors.fill: parent
-                    z: 99
-                    visible: chatDropArea.containsDrag
-                    color: "#0f172ae6"
-                    border.color: window.colPrimary
-                    border.width: 3
-                    radius: 8
-                    
-                    ColumnLayout {
-                        anchors.centerIn: parent
-                        spacing: 12
-                        
-                        Image {
-                            Layout.alignment: Qt.AlignHCenter
-                            width: 48
-                            height: 48
-                            source: "icons/attach_file_white.svg"
-                            sourceSize: Qt.size(48, 48)
-                        }
-                        
-                        Text {
-                            text: "Drop image or file to send"
-                            color: "white"
-                            font.pixelSize: 18
-                            font.bold: true
-                            Layout.alignment: Qt.AlignHCenter
-                        }
-                        
-                        Text {
-                            text: "Sending to " + xmppBackend.activeChatJid
-                            color: window.colMuted
-                            font.pixelSize: 13
-                            Layout.alignment: Qt.AlignHCenter
-                        }
+                onDropped: (drop) => {
+                    if (drop.hasUrls && drop.urls.length > 0) {
+                        var url = drop.urls[0].toString();
+                        root.confirmSendFile(url);
+                        drop.accept();
                     }
+                }
+            }
+            
+            // Visual Drop Overlay
+            Rectangle {
+                anchors.top: parent.top
+                anchors.bottom: parent.bottom
+                anchors.left: parent.left
+                anchors.right: (root.showRightSidebar && (xmppBackend ? xmppBackend.activeChatJid !== "" : false)) ? contactSidebar.left : parent.right
+                z: 99
+                visible: chatDropArea.containsDrag
+                color: "#0f172ae6"
+                border.color: window.colPrimary
+                border.width: 3
+                radius: 8
+                
+                ColumnLayout {
+                    anchors.centerIn: parent
+                    spacing: 12
+                    
+                    Image {
+                        Layout.alignment: Qt.AlignHCenter
+                        width: 48
+                        height: 48
+                        source: "icons/attach_file_white.svg"
+                        sourceSize: Qt.size(48, 48)
+                    }
+                    
+                    Text {
+                        text: "Drop image or file to send"
+                        color: "white"
+                        font.pixelSize: 18
+                        font.bold: true
+                        Layout.alignment: Qt.AlignHCenter
+                    }
+                    
+                    Text {
+                        text: "Sending to " + (xmppBackend ? xmppBackend.activeChatJid : "")
+                        color: window.colMuted
+                        font.pixelSize: 13
+                        Layout.alignment: Qt.AlignHCenter
+                    }
+                }
+            }
+
+            // Right Sidebar (Contact Details)
+            ContactDetailSidebar {
+                id: contactSidebar
+                anchors.top: parent.top
+                anchors.bottom: parent.bottom
+                anchors.right: parent.right
+                width: 320
+                z: 50
+                visible: root.showRightSidebar && (xmppBackend ? xmppBackend.activeChatJid !== "" : false)
+                contactJid: xmppBackend ? xmppBackend.activeChatJid : ""
+                contactName: (xmppBackend && xmppBackend.activeChatJid) ? xmppBackend.activeChatJid.split('@')[0] : ""
+                contactAvatar: xmppBackend ? xmppBackend.activeChatAvatar : ""
+                contactLastSeen: xmppBackend ? xmppBackend.activeChatLastSeen : ""
+                
+                onCloseRequested: {
+                    root.showRightSidebar = false
                 }
             }
         }
@@ -975,4 +1136,5 @@ Item {
             }
         }
     }
+}
 }

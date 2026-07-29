@@ -12,6 +12,7 @@ class RosterModel(QAbstractListModel):
     LastMessageStatusRole = Qt.ItemDataRole.UserRole + 9
     AvatarRole = Qt.ItemDataRole.UserRole + 10
     LastSeenRole = Qt.ItemDataRole.UserRole + 11
+    IsTypingRole = Qt.ItemDataRole.UserRole + 12
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -29,7 +30,8 @@ class RosterModel(QAbstractListModel):
             self.LastMessageIsMeRole: b"lastMessageIsMe",
             self.LastMessageStatusRole: b"lastMessageStatus",
             self.AvatarRole: b"avatar",
-            self.LastSeenRole: b"lastSeen"
+            self.LastSeenRole: b"lastSeen",
+            self.IsTypingRole: b"isTyping"
         }
 
     def rowCount(self, parent=QModelIndex()):
@@ -64,6 +66,8 @@ class RosterModel(QAbstractListModel):
             return contact.get('avatar', '')
         elif role == self.LastSeenRole:
             return contact.get('lastSeen', '')
+        elif role == self.IsTypingRole:
+            return contact.get('isTyping', False)
         return None
 
     def set_contacts(self, contacts, sort_by_latest=False):
@@ -93,12 +97,12 @@ class RosterModel(QAbstractListModel):
         # If not found, add it
         self.add_contact(jid, **kwargs)
 
-    def add_contact(self, jid, name=None, status='offline', statusMessage='', unreadCount=0, lastMessage='', lastMessageTime='', lastMessageIsMe=False, lastMessageStatus='sent', avatar='', lastSeen=''):
+    def add_contact(self, jid, name=None, status='offline', statusMessage='', unreadCount=0, lastMessage='', lastMessageTime='', lastMessageIsMe=False, lastMessageStatus='sent', avatar='', lastSeen='', isTyping=False):
         """Add a contact if not already present."""
         for contact in self._contacts:
             if contact['jid'] == jid:
                 # Update if already exists
-                self.update_contact(jid, name=name, status=status, statusMessage=statusMessage, lastMessage=lastMessage, lastMessageTime=lastMessageTime, lastMessageIsMe=lastMessageIsMe, lastMessageStatus=lastMessageStatus, avatar=avatar, lastSeen=lastSeen)
+                self.update_contact(jid, name=name, status=status, statusMessage=statusMessage, lastMessage=lastMessage, lastMessageTime=lastMessageTime, lastMessageIsMe=lastMessageIsMe, lastMessageStatus=lastMessageStatus, avatar=avatar, lastSeen=lastSeen, isTyping=isTyping)
                 return
         
         self.beginInsertRows(QModelIndex(), len(self._contacts), len(self._contacts))
@@ -113,7 +117,8 @@ class RosterModel(QAbstractListModel):
             'lastMessageIsMe': lastMessageIsMe,
             'lastMessageStatus': lastMessageStatus,
             'avatar': avatar,
-            'lastSeen': lastSeen
+            'lastSeen': lastSeen,
+            'isTyping': isTyping
         })
         self.endInsertRows()
 

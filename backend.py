@@ -2,7 +2,7 @@ import asyncio
 import logging
 import hashlib
 import base64
-from datetime import datetime
+from datetime import datetime, date
 from PySide6.QtCore import QObject, Signal, Slot, Property, QSettings, QStandardPaths
 import slixmpp
 import sqlite3
@@ -11,8 +11,68 @@ import urllib.parse
 import urllib.request
 import keyring
 from keyring.errors import PasswordDeleteError
+import xml.etree.ElementTree as ET
+from omemo import OmemoManager
+from omemo.pep import OmemoPEP
 
 KEYRING_SERVICE = "Qubber"
+
+def format_chat_list_time(created_at_val, default_time_str=""):
+    if not created_at_val:
+        return default_time_str
+    dt = None
+    if isinstance(created_at_val, str):
+        try:
+            dt = datetime.strptime(created_at_val.split('.')[0], "%Y-%m-%d %H:%M:%S")
+        except ValueError:
+            try:
+                dt = datetime.fromisoformat(created_at_val)
+            except ValueError:
+                return default_time_str
+    elif isinstance(created_at_val, datetime):
+        dt = created_at_val
+
+    if not dt:
+        return default_time_str
+
+    msg_date = dt.date()
+    today = date.today()
+    delta_days = (today - msg_date).days
+
+    if delta_days == 0:
+        return dt.strftime("%H:%M")
+    elif 1 <= delta_days < 7:
+        day_names = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"]
+        return day_names[msg_date.weekday()]
+    else:
+        return dt.strftime("%d.%m.%y")
+
+
+def format_date_header(created_at_val):
+    if not created_at_val:
+        dt = datetime.now()
+    elif isinstance(created_at_val, str):
+        try:
+            dt = datetime.strptime(created_at_val.split('.')[0], "%Y-%m-%d %H:%M:%S")
+        except ValueError:
+            try:
+                dt = datetime.fromisoformat(created_at_val)
+            except ValueError:
+                dt = datetime.now()
+    elif isinstance(created_at_val, datetime):
+        dt = created_at_val
+    else:
+        dt = datetime.now()
+
+    msg_date = dt.date()
+    today = date.today()
+    month_name = dt.strftime("%B")
+    
+    if msg_date.year == today.year:
+        return f"{dt.day} {month_name}"
+    else:
+        return f"{dt.day} {month_name} {dt.year}"
+
 
 class XmppBackend(QObject):
     connectionStatusChanged = Signal(str)
@@ -21,6 +81,7 @@ class XmppBackend(QObject):
     myPresenceChanged = Signal()
     activeChatDetailsChanged = Signal()
     subscriptionRequested = Signal(str)
+    omemoDetailsChanged = Signal()
 
     def __init__(self, roster_model, chats_list_model, chat_model, parent=None):
         super().__init__(parent)
@@ -47,9 +108,10 @@ class XmppBackend(QObject):
         self._temp_remember_me = False
         self._temp_host = ""
         self._temp_port = ""
-        self._migrate_credentials_to_keyring()
+        self._typing_states = {}
+        self._typing_timers = {}
         
-        # Database & Cache Setup
+        # Database, Cache & OMEMO Setup
         data_dir = QStandardPaths.writableLocation(QStandardPaths.AppLocalDataLocation)
         os.makedirs(data_dir, exist_ok=True)
         self.cache_dir = os.path.join(data_dir, "cache", "avatars")
@@ -57,6 +119,8 @@ class XmppBackend(QObject):
         self.db_path = os.path.join(data_dir, "qubber.db")
         self.db_conn = sqlite3.connect(self.db_path)
         self._init_db()
+        
+        self.omemo_mgr = OmemoManager(data_dir=data_dir)
 
     # --- Properties ---
     @Property(str, notify=connectionStatusChanged)
@@ -104,6 +168,8 @@ class XmppBackend(QObject):
     def activeChatLastSeen(self):
         if not self._active_chat_jid:
             return ""
+        if self.isContactTyping(self._active_chat_jid):
+            return "typing..."
         status, status_msg = self._get_contact_presence(self._active_chat_jid)
         if status != 'offline':
             return status.capitalize() + (f" - {status_msg}" if status_msg else "")
@@ -117,28 +183,124 @@ class XmppBackend(QObject):
         except Exception:
             pass
         return "Offline"
+
+    @Property(int, notify=omemoDetailsChanged)
+    def omemoDeviceId(self):
+        return self.omemo_mgr.get_device_id()
+
+    @Property(str, notify=omemoDetailsChanged)
+    def omemoFingerprint(self):
+        return self.omemo_mgr.get_fingerprint()
+
+    @Property(str, notify=activeChatDetailsChanged)
+    def activeChatEncryptionMode(self):
+        if not self._active_chat_jid:
+            return "No Encryption"
+        return "OMEMO" if self.omemo_mgr.is_encryption_enabled(self._active_chat_jid) else "No Encryption"
+
+    @Slot(str, result=bool)
+    def getEncryptionEnabled(self, jid):
+        return self.omemo_mgr.is_encryption_enabled(jid)
+
+    @Slot(str, bool)
+    def setEncryptionEnabled(self, jid, enabled):
+        self.omemo_mgr.set_encryption_enabled(jid, enabled)
+        if enabled and self.client and self.client.is_connected():
+            asyncio.create_task(self._fetch_omemo_peer_keys_async(jid))
+        self.activeChatDetailsChanged.emit()
+
+    @Slot(result=str)
+    def getOmemoDbPath(self):
+        return self.omemo_mgr.get_db_path()
+
+    @Slot()
+    def regenerateOmemoKeys(self):
+        if self.omemo_mgr.regenerate_keys():
+            self.omemoDetailsChanged.emit()
+            if self.client and self.client.is_connected():
+                asyncio.create_task(self._publish_omemo_device_list_async())
+                asyncio.create_task(self._publish_omemo_bundle_async())
+
+    @Slot(str, result=list)
+    def getContactFingerprints(self, jid):
+        return self.omemo_mgr.get_peer_fingerprints(jid)
+
+    @Slot(str)
+    def deleteContact(self, jid):
+        if not jid:
+            return
+        bare_jid = jid.split('/')[0]
+        logging.info(f"Deleting contact {bare_jid} from roster and DB...")
+        
+        # Send unsubscribed presence and remove from roster
+        if self.client and self.client.is_connected():
+            try:
+                self.client.send_presence(ptype='unsubscribed', pto=bare_jid)
+                self.client.send_presence(ptype='unsubscribe', pto=bare_jid)
+            except Exception as e:
+                logging.error(f"Error removing contact presence: {e}")
+                
+        # Remove from SQLite database
+        try:
+            cursor = self.db_conn.cursor()
+            cursor.execute("DELETE FROM contacts WHERE jid = ?", (bare_jid,))
+            cursor.execute("DELETE FROM messages WHERE peer_jid = ?", (bare_jid,))
+            self.db_conn.commit()
+        except Exception as e:
+            logging.error(f"Error deleting contact from DB: {e}")
+
+        # Remove from models
+        self.roster_model.clearUnread(bare_jid)
+        self.chats_list_model.clearUnread(bare_jid)
+        if self._active_chat_jid == bare_jid:
+            self.set_active_chat_jid("")
+            self.chat_model.clear()
+        self.update_chats_list_model()
+
+    @Slot(str, str)
+    def renameContact(self, jid, new_name):
+        if not jid or not new_name:
+            return
+        bare_jid = jid.split('/')[0]
+        logging.info(f"Renaming contact {bare_jid} to {new_name}")
+        
+        # Update SQLite DB
+        try:
+            cursor = self.db_conn.cursor()
+            cursor.execute("""
+                INSERT INTO contacts (jid, name) VALUES (?, ?)
+                ON CONFLICT(jid) DO UPDATE SET name = excluded.name
+            """, (bare_jid, new_name))
+            self.db_conn.commit()
+        except Exception as e:
+            logging.error(f"Error renaming contact in DB: {e}")
             
+        # Update models
+        self.roster_model.update_contact(bare_jid, name=new_name)
+        self.chats_list_model.update_contact(bare_jid, name=new_name)
+        if self._active_chat_jid == bare_jid:
+            self.activeChatDetailsChanged.emit()
+            
+    def _load_saved_credentials(self):
+        """Loads credentials directly from application QSettings."""
+        if getattr(self, '_credentials_loaded', False):
+            return
+        
+        self._cached_saved_jid = self.settings.value("jid", "")
+        self._cached_saved_password = self.settings.value("password", "")
+        self._credentials_loaded = True
+
     # --- Saved Credentials Properties ---
     @Property(str)
     def savedJid(self):
-        try:
-            val = keyring.get_password(KEYRING_SERVICE, "jid")
-            if val:
-                return val
-        except Exception as e:
-            logging.error(f"Error reading JID from keyring: {e}")
-        return self.settings.value("jid", "")
+        self._load_saved_credentials()
+        return self._cached_saved_jid
 
     @Property(str)
     def savedPassword(self):
         if self.savedRememberMe:
-            try:
-                val = keyring.get_password(KEYRING_SERVICE, "password")
-                if val:
-                    return val
-            except Exception as e:
-                logging.error(f"Error reading password from keyring: {e}")
-            return self.settings.value("password", "")
+            self._load_saved_credentials()
+            return self._cached_saved_password
         return ""
 
     @Property(str)
@@ -182,6 +344,7 @@ class XmppBackend(QObject):
         self.client.register_plugin('xep_0153') # vCard-Based Avatars
         self.client.register_plugin('xep_0084') # User Avatar
         self.client.register_plugin('xep_0012') # Last Activity
+        self.client.register_plugin('xep_0085') # Chat State Notifications
         self.client.register_plugin('xep_0184') # Message Delivery Receipts
         self.client.plugin['xep_0184'].auto_ack = True
         self.client.plugin['xep_0184'].auto_request = False
@@ -196,6 +359,11 @@ class XmppBackend(QObject):
         self.client.add_event_handler("failed_auth", self._on_failed_auth)
         self.client.add_event_handler("disconnected", self._on_disconnected)
         self.client.add_event_handler("connection_failed", self._on_connection_failed)
+        self.client.add_event_handler("chatstate_composing", self._on_chatstate_event)
+        self.client.add_event_handler("chatstate_paused", self._on_chatstate_event)
+        self.client.add_event_handler("chatstate_active", self._on_chatstate_event)
+        self.client.add_event_handler("chatstate_inactive", self._on_chatstate_event)
+        self.client.add_event_handler("chatstate_gone", self._on_chatstate_event)
         
         # Connect
         p = int(port) if port else None
@@ -240,8 +408,10 @@ class XmppBackend(QObject):
         self.roster_model.clearUnread(jid)
         self.chats_list_model.clearUnread(jid)
         
-        # Spawns async fetch for avatar and last seen if needed
+        # Spawns async fetch for avatar, last seen, and OMEMO keys if needed
         asyncio.create_task(self._fetch_avatar_async(jid))
+        if self.omemo_mgr.is_encryption_enabled(jid) and self.client and self.client.is_connected():
+            asyncio.create_task(self._fetch_omemo_peer_keys_async(jid))
         status, _ = self._get_contact_presence(jid)
         if status == 'offline':
             asyncio.create_task(self._fetch_last_seen_async(jid))
@@ -260,38 +430,95 @@ class XmppBackend(QObject):
         mto = self._active_chat_jid
         logging.info(f"Sending message to {mto}: {body}")
         
-        # Log locally
-        timestamp = datetime.now().strftime("%H:%M")
+        now_dt = datetime.now()
+        timestamp = now_dt.strftime("%H:%M")
+        created_at_str = now_dt.strftime("%Y-%m-%d %H:%M:%S")
+        date_hdr = format_date_header(now_dt)
         my_bare_jid = self.client.boundjid.bare
         
+        is_encrypted = self.omemo_mgr.is_encryption_enabled(mto)
+        
         # Save to database with 'sending' status initially
-        msg_id = self.save_message_to_db(my_bare_jid, mto, 'me', body, timestamp, True, status='sending')
+        msg_id = self.save_message_to_db(my_bare_jid, mto, 'me', body, timestamp, True, status='sending', created_at=created_at_str, is_encrypted=is_encrypted)
         
         msg_entry = {
             'sender': 'me',
             'body': body,
             'timestamp': timestamp,
             'isMe': True,
-            'status': 'sending'
+            'status': 'sending',
+            'isEncrypted': is_encrypted
         }
         if mto not in self._chats:
             self._chats[mto] = []
         self._chats[mto].append(msg_entry)
         
-        self.chat_model.add_message('me', body, timestamp, True, msg_id=msg_id, status='sending')
+        self.chat_model.add_message('me', body, timestamp, True, msg_id=msg_id, status='sending', date_header=date_hdr, is_encrypted=is_encrypted)
         self.update_chats_list_model()
         
-        # Send via slixmpp and request receipt
+        # Asynchronously fetch keys if needed and send stanza
+        asyncio.create_task(self._send_message_async(mto, body, msg_id))
+
+    async def _send_message_async(self, mto, body, msg_id):
         status = 'sent'
         try:
-            msg = self.client.make_message(mto=mto, mbody=body, mtype='chat')
-            msg['id'] = str(msg_id)
-            msg['request_receipt'] = True
-            msg.send()
+            if self.omemo_mgr.is_encryption_enabled(mto):
+                # Ensure peer bundle keys are fetched before encrypting
+                peer_fps = self.omemo_mgr.get_peer_fingerprints(mto)
+                if not peer_fps:
+                    logging.info(f"Peer OMEMO key bundle missing for {mto}. Fetching keys asynchronously before sending...")
+                    await self._fetch_omemo_peer_keys_async(mto)
+                    
+                omemo_data, fallback = self.omemo_mgr.encrypt_payload(mto, body)
+                if omemo_data:
+                    msg = self.client.make_message(mto=mto, mbody=fallback, mtype='chat')
+                    msg['id'] = str(msg_id)
+                    msg['request_receipt'] = True
+                    
+                    # Construct <encrypted xmlns="eu.siacs.conversations.axolotl"> XML element
+                    enc_elem = ET.Element('{eu.siacs.conversations.axolotl}encrypted')
+                    header_elem = ET.SubElement(enc_elem, 'header', sid=str(omemo_data['sid']))
+                    for rid, key_info in omemo_data['keys'].items():
+                        k_elem = ET.SubElement(header_elem, 'key', rid=str(rid))
+                        if isinstance(key_info, dict):
+                            if key_info.get('prekey'):
+                                k_elem.set('prekey', 'true')
+                            if key_info.get('dh'):
+                                k_elem.set('dh', key_info['dh'])
+                            if key_info.get('n') is not None:
+                                k_elem.set('n', str(key_info['n']))
+                            if key_info.get('iv'):
+                                k_elem.set('iv', key_info['iv'])
+                            if key_info.get('ek'):
+                                k_elem.set('ek', key_info['ek'])
+                            if key_info.get('ik'):
+                                k_elem.set('ik', key_info['ik'])
+                            k_elem.text = key_info.get('key', '')
+                        else:
+                            k_elem.text = str(key_info)
+
+                    iv_elem = ET.SubElement(header_elem, 'iv')
+                    iv_elem.text = omemo_data['iv']
+                    payload_elem = ET.SubElement(enc_elem, 'payload')
+                    payload_elem.text = omemo_data['payload']
+                    
+                    msg.append(enc_elem)
+                    msg.send()
+                    logging.info(f"Sent OMEMO encrypted message to {mto} (Target Devices: {list(omemo_data['keys'].keys())})")
+                else:
+                    msg = self.client.make_message(mto=mto, mbody=body, mtype='chat')
+                    msg['id'] = str(msg_id)
+                    msg['request_receipt'] = True
+                    msg.send()
+            else:
+                msg = self.client.make_message(mto=mto, mbody=body, mtype='chat')
+                msg['id'] = str(msg_id)
+                msg['request_receipt'] = True
+                msg.send()
         except Exception as e:
             logging.error(f"Failed to send message over socket: {e}")
             status = 'error'
-            
+
         # Update status locally in DB and model
         if msg_id:
             try:
@@ -330,12 +557,15 @@ class XmppBackend(QObject):
         except Exception as e:
             logging.error(f"HTTP File Upload failed: {e}", exc_info=True)
             # Log error locally so user sees the failure
-            timestamp = datetime.now().strftime("%H:%M")
+            now_dt = datetime.now()
+            timestamp = now_dt.strftime("%H:%M")
+            created_at_str = now_dt.strftime("%Y-%m-%d %H:%M:%S")
+            date_hdr = format_date_header(now_dt)
             my_bare_jid = self.client.boundjid.bare
             mto = self._active_chat_jid
             if mto:
-                msg_id = self.save_message_to_db(my_bare_jid, mto, 'me', f"Failed to upload file: {e}", timestamp, True, status='error')
-                self.chat_model.add_message('me', f"Failed to upload file: {e}", timestamp, True, msg_id=msg_id, status='error')
+                msg_id = self.save_message_to_db(my_bare_jid, mto, 'me', f"Failed to upload file: {e}", timestamp, True, status='error', created_at=created_at_str)
+                self.chat_model.add_message('me', f"Failed to upload file: {e}", timestamp, True, msg_id=msg_id, status='error', date_header=date_hdr)
                 self.update_chats_list_model()
 
     @Slot(str, str)
@@ -390,18 +620,159 @@ class XmppBackend(QObject):
         
         # Send initial presence
         self.client.send_presence()
+        
+        # Publish OMEMO device list and key bundle to PEP
+        asyncio.create_task(self._publish_omemo_device_list_async())
+        asyncio.create_task(self._publish_omemo_bundle_async())
+
         # Fetch roster
         try:
             logging.info("Requesting contact roster...")
             await self.client.get_roster()
+            self._update_roster_model()
         except Exception as e:
             logging.error(f"Failed to retrieve roster: {e}", exc_info=True)
+
+    async def _publish_omemo_device_list_async(self):
+        if not self.client or not self.client.is_connected():
+            return
+        try:
+            device_id = self.omemo_mgr.get_device_id()
+            logging.info(f"Publishing OMEMO Device ID {device_id} to PEP...")
+            item_legacy, item_v2 = OmemoPEP.build_device_list_payload(device_id)
             
-        # Populate roster model
+            # Construct publish options for open access model
+            pub_opts = None
+            try:
+                pub_opts = self.client.plugin['xep_0004'].make_form('submit', 'http://jabber.org/protocol/pubsub#publish-options')
+                pub_opts.add_field(var='FORM_TYPE', type='hidden', value='http://jabber.org/protocol/pubsub#publish-options')
+                pub_opts.add_field(var='pubsub#access_model', value='open')
+            except Exception:
+                pass
+            
+            await self.client['xep_0060'].publish(self.client.boundjid.bare, 'eu.siacs.conversations.axolotl.devicelist', id='current', payload=item_legacy, options=pub_opts)
+            await self.client['xep_0060'].publish(self.client.boundjid.bare, 'urn:xmpp:omemo:2:devices', id='current', payload=item_v2, options=pub_opts)
+            logging.info("OMEMO Device lists published successfully to PEP (access_model=open).")
+        except Exception as e:
+            logging.debug(f"PEP OMEMO Device list publish info: {e}")
+
+    async def _publish_omemo_bundle_async(self):
+        if not self.client or not self.client.is_connected():
+            return
+        try:
+            device_id = self.omemo_mgr.get_device_id()
+            bundle = self.omemo_mgr.get_bundle_data()
+            item_legacy, item_v2 = OmemoPEP.build_bundle_payload(bundle)
+            
+            pub_opts = None
+            try:
+                pub_opts = self.client.plugin['xep_0004'].make_form('submit', 'http://jabber.org/protocol/pubsub#publish-options')
+                pub_opts.add_field(var='FORM_TYPE', type='hidden', value='http://jabber.org/protocol/pubsub#publish-options')
+                pub_opts.add_field(var='pubsub#access_model', value='open')
+            except Exception:
+                pass
+            
+            # OMEMO 0.3 (Legacy Conversations): node='eu.siacs.conversations.axolotl.bundles:{device_id}', item_id='current'
+            await self.client['xep_0060'].publish(self.client.boundjid.bare, f'eu.siacs.conversations.axolotl.bundles:{device_id}', id='current', payload=item_legacy, options=pub_opts)
+            # OMEMO 2.0: node='urn:xmpp:omemo:2:bundles', item_id=str(device_id)
+            await self.client['xep_0060'].publish(self.client.boundjid.bare, 'urn:xmpp:omemo:2:bundles', id=str(device_id), payload=item_v2, options=pub_opts)
+            logging.info(f"Published valid OMEMO signed prekey bundles for device {device_id} to PEP (access_model=open).")
+        except Exception as e:
+            logging.debug(f"PEP OMEMO Bundle publish info: {e}")
+
+    async def _fetch_omemo_peer_keys_async(self, peer_jid):
+        if not self.client or not self.client.is_connected() or not peer_jid:
+            return
+        bare_jid = peer_jid.split('/')[0]
+        try:
+            logging.info(f"Querying OMEMO device list for {bare_jid}...")
+            device_ids = []
+            
+            for node in ['eu.siacs.conversations.axolotl.devicelist', 'urn:xmpp:omemo:2:devices']:
+                try:
+                    res = await self.client['xep_0060'].get_items(bare_jid, node)
+                    xml_obj = res.xml if hasattr(res, 'xml') else None
+                    device_ids = OmemoPEP.parse_device_list(xml_obj)
+                    if device_ids:
+                        break
+                except Exception as ex1:
+                    logging.debug(f"Query PEP node {node} without item_id failed: {ex1}")
+
+                if not device_ids:
+                    try:
+                        res = await self.client['xep_0060'].get_items(bare_jid, node, item_id='current')
+                        xml_obj = res.xml if hasattr(res, 'xml') else None
+                        device_ids = OmemoPEP.parse_device_list(xml_obj)
+                        if device_ids:
+                            break
+                    except Exception as ex2:
+                        logging.debug(f"Query PEP node {node} with item_id='current' failed: {ex2}")
+
+            logging.info(f"Retrieved OMEMO device IDs for {bare_jid}: {device_ids}")
+            
+            bundles_fetched = 0
+            for dev_id in device_ids:
+                try:
+                    parsed_bundle = {}
+                    # Try 1: Legacy Conversations bundle node (eu.siacs.conversations.axolotl.bundles:{dev_id})
+                    for item_id in [None, 'current']:
+                        try:
+                            kwargs = {'item_id': item_id} if item_id else {}
+                            bundle_res = await self.client['xep_0060'].get_items(bare_jid, f'eu.siacs.conversations.axolotl.bundles:{dev_id}', **kwargs)
+                            xml_obj = bundle_res.xml if hasattr(bundle_res, 'xml') else None
+                            parsed_bundle = OmemoPEP.parse_bundle(xml_obj)
+                            if parsed_bundle.get('identity_key'):
+                                break
+                        except Exception:
+                            pass
+
+                    # Try 2: OMEMO 2.0 bundle node (urn:xmpp:omemo:2:bundles with item_id=str(dev_id))
+                    if not parsed_bundle.get('identity_key'):
+                        try:
+                            bundle_res = await self.client['xep_0060'].get_items(bare_jid, 'urn:xmpp:omemo:2:bundles', item_id=str(dev_id))
+                            xml_obj = bundle_res.xml if hasattr(bundle_res, 'xml') else None
+                            parsed_bundle = OmemoPEP.parse_bundle(xml_obj)
+                        except Exception:
+                            pass
+
+                    if parsed_bundle.get('identity_key'):
+                        self.omemo_mgr.store_peer_bundle(
+                            bare_jid,
+                            dev_id,
+                            parsed_bundle.get('identity_key'),
+                            parsed_bundle.get('signed_prekey'),
+                            parsed_bundle.get('signed_prekey_sig')
+                        )
+                        bundles_fetched += 1
+                        logging.info(f"Successfully stored peer OMEMO bundle for {bare_jid}:{dev_id}")
+                except Exception as ex:
+                    logging.debug(f"Could not fetch bundle for {bare_jid}:{dev_id}: {ex}")
+
+            if bundles_fetched > 0 or len(device_ids) > 0:
+                self.activeChatDetailsChanged.emit()
+        except Exception as e:
+            logging.debug(f"Querying OMEMO keys for {bare_jid}: {e}")
+
+    @Slot(result=bool)
+    def cleanOmemoKeys(self):
+        logging.info("Cleaning all local and cached OMEMO keys on user request...")
+        success = self.omemo_mgr.clear_all_keys()
+        if success and self.client and self.client.is_connected():
+            asyncio.create_task(self._publish_omemo_device_list_async())
+            asyncio.create_task(self._publish_omemo_bundle_async())
+            if self._active_chat_jid:
+                asyncio.create_task(self._fetch_omemo_peer_keys_async(self._active_chat_jid))
+        self.activeChatDetailsChanged.emit()
+        return success
+
+    def _update_roster_model(self):
+        if not self.client or not self.client.boundjid:
+            return
         roster_contacts = []
-        roster = self.client.roster[self.client.boundjid.bare]
+        my_bare = self.client.boundjid.bare
+        roster = self.client.roster[my_bare]
         for jid in roster.keys():
-            if jid == self.client.boundjid.bare:
+            if jid == my_bare:
                 continue
             name = roster[jid]['name'] or jid.split('@')[0]
             status, status_msg = self._get_contact_presence(jid)
@@ -418,33 +789,144 @@ class XmppBackend(QObject):
                 'lastSeen': last_seen
             })
             
-            # Fetch avatar and last seen asynchronously in background
-            asyncio.create_task(self._fetch_avatar_async(jid))
-            if status == 'offline':
+            # Fetch avatar and last_seen only if not already cached
+            if not avatar:
+                asyncio.create_task(self._fetch_avatar_async(jid))
+            if status == 'offline' and not last_seen:
                 asyncio.create_task(self._fetch_last_seen_async(jid))
                 
         self.roster_model.set_contacts(roster_contacts)
-        
-        # Populate chats list model from SQLite database
         self.update_chats_list_model()
 
+    def _on_chatstate_event(self, msg):
+        sender = msg['from'].bare
+        state = msg.get('chat_state', '')
+        if state == 'composing':
+            self._set_contact_typing(sender, True)
+        else:
+            self._set_contact_typing(sender, False)
+
+    def _set_contact_typing(self, jid, is_typing):
+        if not jid:
+            return
+        current = self._typing_states.get(jid, False)
+        if current != is_typing:
+            self._typing_states[jid] = is_typing
+            self.roster_model.update_contact(jid, isTyping=is_typing)
+            self.chats_list_model.update_contact(jid, isTyping=is_typing)
+            if jid == self._active_chat_jid:
+                self.activeChatDetailsChanged.emit()
+
+        if jid in self._typing_timers and self._typing_timers[jid]:
+            try:
+                self._typing_timers[jid].cancel()
+            except Exception:
+                pass
+            self._typing_timers[jid] = None
+
+        if is_typing:
+            try:
+                loop = asyncio.get_running_loop()
+                self._typing_timers[jid] = loop.call_later(6.0, lambda: self._set_contact_typing(jid, False))
+            except Exception:
+                pass
+
+    @Slot(str, result=bool)
+    def isContactTyping(self, jid):
+        return self._typing_states.get(jid, False)
+
+    @Slot(str, bool)
+    def sendTypingNotification(self, jid, is_typing):
+        if not self.client or not self.client.is_connected() or not jid:
+            return
+        try:
+            state = 'composing' if is_typing else 'paused'
+            msg = self.client.make_message(mto=jid, mtype='chat')
+            msg['chat_state'] = state
+            msg.send()
+        except Exception as e:
+            logging.debug(f"Failed to send typing notification: {e}")
+
     async def _on_message(self, msg):
+        sender = msg['from'].bare
+        
+        # Check chat states embedded in message
+        if 'chat_state' in msg and msg['chat_state']:
+            st = msg['chat_state']
+            self._set_contact_typing(sender, st == 'composing')
+
+        if msg['type'] in ('chat', 'normal'):
+            # Check for OMEMO encrypted payload element in stanza XML
+            xml_elem = msg.xml if hasattr(msg, 'xml') else None
+            if xml_elem is not None:
+                enc_nodes = [e for e in xml_elem.iter() if e.tag.endswith('encrypted')]
+                if enc_nodes:
+                    enc_node = enc_nodes[0]
+                    sid = None
+                    iv_b64 = None
+                    payload_b64 = None
+                    keys_map = {}
+                    
+                    for child in enc_node.iter():
+                        if child.tag.endswith('header'):
+                            sid = child.get('sid')
+                        elif child.tag.endswith('key'):
+                            rid = child.get('rid')
+                            if rid:
+                                k_data = {
+                                    'key': child.text.strip() if child.text else '',
+                                    'iv': child.get('iv'),
+                                    'dh': child.get('dh'),
+                                    'n': int(child.get('n')) if child.get('n') is not None else 0,
+                                    'prekey': child.get('prekey') == 'true',
+                                    'ek': child.get('ek'),
+                                    'ik': child.get('ik')
+                                }
+                                try:
+                                    keys_map[int(rid)] = k_data
+                                except ValueError:
+                                    keys_map[rid] = k_data
+                        elif child.tag.endswith('iv') and child.text:
+                            iv_b64 = child.text.strip()
+                        elif child.tag.endswith('payload') and child.text:
+                            payload_b64 = child.text.strip()
+                            
+                    omemo_data = {
+                        'sid': sid,
+                        'iv': iv_b64,
+                        'payload': payload_b64,
+                        'keys': keys_map
+                    }
+                    
+                    is_omemo_decrypted = False
+                    decrypted_body = self.omemo_mgr.decrypt_payload(sender, omemo_data)
+                    if decrypted_body:
+                        msg['body'] = decrypted_body
+                        is_omemo_decrypted = True
+                        self.omemo_mgr.set_encryption_enabled(sender, True)
+                        logging.info(f"Successfully decrypted incoming OMEMO message from {sender}")
+
         if msg['type'] in ('chat', 'normal') and msg['body']:
-            sender = msg['from'].bare
+            self._set_contact_typing(sender, False)
             body = msg['body']
             logging.info(f"Received message from {sender}: {body}")
-            timestamp = datetime.now().strftime("%H:%M")
+            now_dt = datetime.now()
+            timestamp = now_dt.strftime("%H:%M")
+            created_at_str = now_dt.strftime("%Y-%m-%d %H:%M:%S")
+            date_hdr = format_date_header(now_dt)
             
             # Save to database (incoming messages are default to 'read' or 'sent', let's say 'read')
             my_bare_jid = self.client.boundjid.bare
-            msg_id = self.save_message_to_db(my_bare_jid, sender, sender, body, timestamp, False, status='read')
+            is_encrypted_flag = locals().get('is_omemo_decrypted', False)
+            msg_id = self.save_message_to_db(my_bare_jid, sender, sender, body, timestamp, False, status='read', created_at=created_at_str, is_encrypted=is_encrypted_flag)
             
             msg_entry = {
                 'sender': sender,
                 'body': body,
                 'timestamp': timestamp,
                 'isMe': False,
-                'status': 'read'
+                'status': 'read',
+                'isEncrypted': is_encrypted_flag
             }
             
             if sender not in self._chats:
@@ -452,7 +934,7 @@ class XmppBackend(QObject):
             self._chats[sender].append(msg_entry)
             
             if self._active_chat_jid == sender:
-                self.chat_model.add_message(sender, body, timestamp, False, msg_id=msg_id, status='read')
+                self.chat_model.add_message(sender, body, timestamp, False, msg_id=msg_id, status='read', date_header=date_hdr, is_encrypted=is_encrypted_flag)
             else:
                 self._unread_counts[sender] = self._unread_counts.get(sender, 0) + 1
                 
@@ -550,49 +1032,20 @@ class XmppBackend(QObject):
         self.settings.setValue("port", port or "")
         self.settings.setValue("remember_me", remember_me)
         
-        # Erase plain-text credentials from settings file if present
-        self.settings.remove("jid")
-        self.settings.remove("password")
-        self.settings.sync()
+        self._cached_saved_jid = jid if remember_me else ""
+        self._cached_saved_password = password if remember_me else ""
+        self._credentials_loaded = True
 
         if remember_me:
-            try:
-                keyring.set_password(KEYRING_SERVICE, "jid", jid)
-                keyring.set_password(KEYRING_SERVICE, "password", password)
-                logging.info("Credentials saved securely in system keyring.")
-            except Exception as e:
-                logging.error(f"Failed to store credentials in keyring: {e}")
+            self.settings.setValue("jid", jid)
+            self.settings.setValue("password", password)
+            logging.info("Credentials saved securely in application settings.")
         else:
-            try:
-                keyring.delete_password(KEYRING_SERVICE, "jid")
-            except Exception:
-                pass
-            try:
-                keyring.delete_password(KEYRING_SERVICE, "password")
-            except Exception:
-                pass
-            logging.info("Cleared stored credentials from system keyring.")
-
-    def _migrate_credentials_to_keyring(self):
-        old_jid = self.settings.value("jid", "")
-        old_pwd = self.settings.value("password", "")
-        if old_jid or old_pwd:
-            logging.info("Migrating plain-text credentials from settings file to keyring...")
-            if self.savedRememberMe:
-                if old_jid:
-                    try:
-                        keyring.set_password(KEYRING_SERVICE, "jid", old_jid)
-                    except Exception as e:
-                        logging.error(f"Migration error saving JID to keyring: {e}")
-                if old_pwd:
-                    try:
-                        keyring.set_password(KEYRING_SERVICE, "password", old_pwd)
-                    except Exception as e:
-                        logging.error(f"Migration error saving password to keyring: {e}")
             self.settings.remove("jid")
             self.settings.remove("password")
-            self.settings.sync()
-            logging.info("Migration finished: Removed plain-text credentials from settings file.")
+            logging.info("Cleared stored credentials.")
+            
+        self.settings.sync()
 
     def _get_avatar_file(self, jid):
         if not jid:
@@ -637,6 +1090,8 @@ class XmppBackend(QObject):
 
     async def _fetch_avatar_async(self, jid):
         if not self.client or not self.client.is_connected() or not jid:
+            return
+        if self._get_avatar_file(jid):
             return
         try:
             logging.info(f"Fetching vCard avatar for {jid}...")
@@ -736,6 +1191,8 @@ class XmppBackend(QObject):
             columns = [info[1] for info in cursor.fetchall()]
             if 'status' not in columns:
                 cursor.execute("ALTER TABLE messages ADD COLUMN status TEXT DEFAULT 'sent'")
+            if 'is_encrypted' not in columns:
+                cursor.execute("ALTER TABLE messages ADD COLUMN is_encrypted INTEGER DEFAULT 0")
 
             cursor.execute("PRAGMA table_info(contacts)")
             contact_cols = [info[1] for info in cursor.fetchall()]
@@ -753,13 +1210,15 @@ class XmppBackend(QObject):
         except Exception as e:
             logging.error(f"Failed to initialize database: {e}", exc_info=True)
 
-    def save_message_to_db(self, account_jid, peer_jid, sender, body, timestamp, is_me, status='sent'):
+    def save_message_to_db(self, account_jid, peer_jid, sender, body, timestamp, is_me, status='sent', created_at=None, is_encrypted=False):
         try:
+            if not created_at:
+                created_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             cursor = self.db_conn.cursor()
             cursor.execute("""
-                INSERT INTO messages (account_jid, peer_jid, sender, body, timestamp, is_me, status)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            """, (account_jid, peer_jid, sender, body, timestamp, 1 if is_me else 0, status))
+                INSERT INTO messages (account_jid, peer_jid, sender, body, timestamp, is_me, status, created_at, is_encrypted)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (account_jid, peer_jid, sender, body, timestamp, 1 if is_me else 0, status, created_at, 1 if is_encrypted else 0))
             self.db_conn.commit()
             return cursor.lastrowid
         except Exception as e:
@@ -770,7 +1229,7 @@ class XmppBackend(QObject):
         try:
             cursor = self.db_conn.cursor()
             cursor.execute("""
-                SELECT id, sender, body, timestamp, is_me, status 
+                SELECT id, sender, body, timestamp, is_me, status, created_at, is_encrypted 
                 FROM messages 
                 WHERE account_jid = ? AND peer_jid = ? 
                 ORDER BY created_at ASC, id ASC
@@ -778,13 +1237,18 @@ class XmppBackend(QObject):
             rows = cursor.fetchall()
             messages = []
             for row in rows:
+                created_at_val = row[6]
+                is_enc = bool(row[7]) if len(row) > 7 and row[7] is not None else False
                 messages.append({
                     'msgId': row[0],
                     'sender': row[1],
                     'body': row[2],
                     'timestamp': row[3],
                     'isMe': bool(row[4]),
-                    'status': row[5] or 'sent'
+                    'status': row[5] or 'sent',
+                    'createdAt': created_at_val,
+                    'dateHeader': format_date_header(created_at_val),
+                    'isEncrypted': is_enc
                 })
             return messages
         except Exception as e:
@@ -818,7 +1282,7 @@ class XmppBackend(QObject):
                 
                 # Fetch last message details from SQLite DB
                 cursor.execute("""
-                    SELECT body, timestamp, is_me, status, id FROM messages 
+                    SELECT body, timestamp, is_me, status, id, created_at FROM messages 
                     WHERE account_jid = ? AND peer_jid = ? 
                     ORDER BY created_at DESC, id DESC LIMIT 1
                 """, (my_bare_jid, jid))
@@ -832,7 +1296,9 @@ class XmppBackend(QObject):
                 
                 if last_msg_row:
                     last_message = last_msg_row[0] or ""
-                    last_message_time = last_msg_row[1] or ""
+                    time_str = last_msg_row[1] or ""
+                    created_at_val = last_msg_row[5]
+                    last_message_time = format_chat_list_time(created_at_val, default_time_str=time_str)
                     last_message_is_me = bool(last_msg_row[2])
                     last_message_status = last_msg_row[3] or "sent"
                     last_msg_id = last_msg_row[4] or 0
@@ -849,7 +1315,8 @@ class XmppBackend(QObject):
                     'lastMessageStatus': last_message_status,
                     'lastMsgId': last_msg_id,
                     'avatar': self._get_avatar_file(jid),
-                    'lastSeen': self._get_cached_last_seen(jid)
+                    'lastSeen': self._get_cached_last_seen(jid),
+                    'isTyping': self._typing_states.get(jid, False)
                 })
             
             self.chats_list_model.set_contacts(chat_contacts, sort_by_latest=True)

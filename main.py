@@ -16,6 +16,15 @@ from backend import XmppBackend
 from theme_manager import ThemeManager
 
 def main():
+    if "--clean" in sys.argv:
+        from PySide6.QtCore import QStandardPaths
+        import shutil
+        data_dir = QStandardPaths.writableLocation(QStandardPaths.AppLocalDataLocation)
+        if os.path.exists(data_dir):
+            shutil.rmtree(data_dir)
+            print(f"Cleaned application data directory: {data_dir}")
+        sys.argv.remove("--clean")
+
     # Set default text rendering type to NativeTextRendering to support color emojis on Linux
     QQuickWindow.setTextRenderType(QQuickWindow.TextRenderType.NativeTextRendering)
     

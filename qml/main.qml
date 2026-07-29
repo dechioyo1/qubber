@@ -362,6 +362,30 @@ ApplicationWindow {
                                 }
 
                                 Button {
+                                    id: encryptionMenuBtn
+                                    Layout.fillWidth: true
+                                    implicitHeight: 36
+                                    
+                                    contentItem: Text {
+                                        text: "Encryption (OMEMO)..."
+                                        color: encryptionMenuBtn.hovered ? "white" : window.colText
+                                        font.pixelSize: 14
+                                        verticalAlignment: Text.AlignVCenter
+                                        leftPadding: 8
+                                    }
+                                    
+                                    background: Rectangle {
+                                        color: encryptionMenuBtn.hovered ? window.colPrimary : "transparent"
+                                        radius: 6
+                                    }
+                                    
+                                    onClicked: {
+                                        settingsMenu.close()
+                                        encryptionDialog.open()
+                                    }
+                                }
+
+                                Button {
                                     id: aboutSettingsMenuBtn
                                     Layout.fillWidth: true
                                     implicitHeight: 36
@@ -850,6 +874,186 @@ ApplicationWindow {
                 }
                 
                 onClicked: themeDialog.close()
+            }
+        }
+    }
+    
+    Dialog {
+        id: encryptionDialog
+        anchors.centerIn: parent
+        modal: true
+        focus: true
+        padding: 24
+        
+        background: Rectangle {
+            color: window.colCard
+            border.color: window.colBorder
+            border.width: 1
+            radius: 8
+        }
+        
+        contentItem: ColumnLayout {
+            spacing: 16
+            width: 380
+            
+            RowLayout {
+                spacing: 10
+                Image {
+                    width: 24
+                    height: 24
+                    source: "icons/lock_primary.svg"
+                    sourceSize: Qt.size(24, 24)
+                }
+                Text {
+                    text: "OMEMO Encryption Settings"
+                    color: window.colText
+                    font.pixelSize: 18
+                    font.bold: true
+                    Layout.fillWidth: true
+                }
+            }
+            
+            ColumnLayout {
+                spacing: 4
+                Layout.fillWidth: true
+                
+                Text {
+                    text: "Device ID"
+                    color: window.colMuted
+                    font.pixelSize: 12
+                }
+                
+                Rectangle {
+                    Layout.fillWidth: true
+                    height: 36
+                    color: window.colInputBg
+                    border.color: window.colBorder
+                    radius: 6
+                    
+                    Text {
+                        anchors.fill: parent
+                        anchors.leftMargin: 10
+                        anchors.rightMargin: 10
+                        text: (xmppBackend && xmppBackend.omemoDeviceId) ? xmppBackend.omemoDeviceId.toString() : "N/A"
+                        color: window.colText
+                        font.pixelSize: 13
+                        font.bold: true
+                        verticalAlignment: Text.AlignVCenter
+                    }
+                }
+            }
+            
+            ColumnLayout {
+                spacing: 4
+                Layout.fillWidth: true
+                
+                Text {
+                    text: "Your OMEMO Identity Fingerprint"
+                    color: window.colMuted
+                    font.pixelSize: 12
+                }
+                
+                Rectangle {
+                    Layout.fillWidth: true
+                    height: 52
+                    color: window.colInputBg
+                    border.color: window.colBorder
+                    radius: 6
+                    
+                    Text {
+                        anchors.fill: parent
+                        anchors.leftMargin: 10
+                        anchors.rightMargin: 10
+                        text: (xmppBackend && xmppBackend.omemoFingerprint) ? xmppBackend.omemoFingerprint : "N/A"
+                        color: window.colAccent
+                        font.pixelSize: 13
+                        font.bold: true
+                        font.family: "Monospace"
+                        wrapMode: Text.Wrap
+                        verticalAlignment: Text.AlignVCenter
+                    }
+                }
+            }
+            
+            ColumnLayout {
+                spacing: 4
+                Layout.fillWidth: true
+                
+                Text {
+                    text: "OMEMO Key Storage Database"
+                    color: window.colMuted
+                    font.pixelSize: 12
+                }
+                
+                Rectangle {
+                    Layout.fillWidth: true
+                    height: 36
+                    color: window.colInputBg
+                    border.color: window.colBorder
+                    radius: 6
+                    
+                    Text {
+                        anchors.fill: parent
+                        anchors.leftMargin: 10
+                        anchors.rightMargin: 10
+                        text: xmppBackend ? xmppBackend.getOmemoDbPath() : "N/A"
+                        color: window.colText
+                        font.pixelSize: 11
+                        verticalAlignment: Text.AlignVCenter
+                        elide: Text.ElideMiddle
+                    }
+                }
+            }
+            
+            RowLayout {
+                spacing: 12
+                Layout.alignment: Qt.AlignRight
+                
+                Button {
+                    id: regenKeysBtn
+                    implicitHeight: 36
+                    implicitWidth: 140
+                    
+                    contentItem: Text {
+                        text: "Regenerate Keys"
+                        color: window.colText
+                        font.pixelSize: 13
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+                    
+                    background: Rectangle {
+                        color: regenKeysBtn.hovered ? "#33415540" : "transparent"
+                        border.color: window.colBorder
+                        radius: 6
+                    }
+                    
+                    onClicked: {
+                        if (xmppBackend) xmppBackend.regenerateOmemoKeys()
+                    }
+                }
+                
+                Button {
+                    id: closeEncDialogBtn
+                    implicitHeight: 36
+                    implicitWidth: 90
+                    
+                    contentItem: Text {
+                        text: "Done"
+                        color: "white"
+                        font.bold: true
+                        font.pixelSize: 13
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+                    
+                    background: Rectangle {
+                        color: closeEncDialogBtn.down ? window.colPrimaryDark : (closeEncDialogBtn.hovered ? window.colAccent : window.colPrimary)
+                        radius: 6
+                    }
+                    
+                    onClicked: encryptionDialog.close()
+                }
             }
         }
     }

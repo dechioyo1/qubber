@@ -156,19 +156,24 @@ ItemDelegate {
                 spacing: 4
                 
                 Text {
-                    text: (model.lastMessage && model.lastMessage !== "") 
-                        ? model.lastMessage 
-                        : ((model.lastSeen && model.lastSeen !== "") 
-                            ? model.lastSeen 
-                            : (model.statusMessage !== "" ? model.statusMessage : model.jid))
-                    color: delegate.isActive ? "#ffffffe0" : window.colMuted
+                    text: (model.isTyping !== undefined && model.isTyping)
+                        ? "typing..."
+                        : ((model.lastMessage && model.lastMessage !== "") 
+                            ? model.lastMessage 
+                            : ((model.lastSeen && model.lastSeen !== "") 
+                                ? model.lastSeen 
+                                : (model.statusMessage !== "" ? model.statusMessage : model.jid)))
+                    color: (model.isTyping !== undefined && model.isTyping)
+                        ? window.colAccent
+                        : (delegate.isActive ? "#ffffffe0" : window.colMuted)
                     font.pixelSize: 14
+                    font.italic: model.isTyping !== undefined && model.isTyping
                     elide: Text.ElideRight
                     Layout.fillWidth: true
                 }
                 
                 Image {
-                    visible: model.lastMessageIsMe !== undefined && model.lastMessageIsMe && model.lastMessage && model.lastMessage !== ""
+                    visible: (model.isTyping === undefined || !model.isTyping) && model.lastMessageIsMe !== undefined && model.lastMessageIsMe && model.lastMessage && model.lastMessage !== ""
                     width: 14
                     height: 14
                     source: {
