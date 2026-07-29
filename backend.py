@@ -12,8 +12,70 @@ import urllib.request
 import keyring
 from keyring.errors import PasswordDeleteError
 import xml.etree.ElementTree as ET
-from omemo import OmemoManager
-from omemo.pep import OmemoPEP
+from pathlib import Path
+import json
+from slixmpp_omemo import XEP_0384, TrustLevel
+from omemo.storage import Storage, Just, Nothing
+from qubber_omemo.manager import OmemoManager
+from qubber_omemo.pep import OmemoPEP
+
+class JSONStorage(Storage):
+    def __init__(self, file_path):
+        super().__init__()
+        self.file_path = Path(file_path)
+        self.data = json.loads(self.file_path.read_text()) if self.file_path.exists() else {}
+
+    async def _load(self, key):
+        if key in self.data:
+            return Just(self.data[key])
+        return Nothing()
+
+    async def _store(self, key, value):
+        self.data[key] = value
+        try:
+            self.file_path.write_text(json.dumps(self.data))
+        except Exception as e:
+            logging.error(f"Failed to write OMEMO JSONStorage: {e}")
+
+    async def _delete(self, key):
+        self.data.pop(key, None)
+        try:
+            self.file_path.write_text(json.dumps(self.data))
+        except Exception as e:
+            logging.error(f"Failed to delete OMEMO JSONStorage key {key}: {e}")
+
+class QubberOmemoPlugin(XEP_0384):
+    def __init__(self, xmpp, config=None):
+        super().__init__(xmpp, config)
+        data_dir = QStandardPaths.writableLocation(QStandardPaths.AppLocalDataLocation)
+        os.makedirs(data_dir, exist_ok=True)
+        storage_path = Path(data_dir) / "omemo_store.json"
+        self._storage = JSONStorage(storage_path)
+
+    @property
+    def storage(self):
+        return self._storage
+
+    @property
+    def _btbv_enabled(self):
+        return True
+
+    async def _prompt_manual_trust(self, manually_trusted, identifier):
+        try:
+            session_manager = await self.get_session_manager()
+            for device in manually_trusted:
+                await session_manager.set_trust(
+                    device.bare_jid,
+                    device.identity_key,
+                    TrustLevel.TRUSTED.value
+                )
+        except Exception as e:
+            logging.error(f"Error auto-trusting OMEMO device: {e}")
+
+try:
+    slixmpp.plugins.register_plugin(QubberOmemoPlugin)
+except Exception:
+    pass
 
 KEYRING_SERVICE = "Qubber"
 
@@ -338,7 +400,8 @@ class XmppBackend(QObject):
         # Explicitly assign loop to slixmpp
         self.client.loop = asyncio.get_running_loop()
         
-        # Register plugins
+        self.client.use_message_ids = True
+        self.client.register_plugin('xep_0004') # Data Forms
         self.client.register_plugin('xep_0030') # Service Discovery
         self.client.register_plugin('xep_0054') # vCard-temp (Avatars)
         self.client.register_plugin('xep_0153') # vCard-Based Avatars
@@ -349,6 +412,15 @@ class XmppBackend(QObject):
         self.client.plugin['xep_0184'].auto_ack = True
         self.client.plugin['xep_0184'].auto_request = False
         self.client.register_plugin('xep_0363') # HTTP File Upload
+        self.client.register_plugin('xep_0060') # PubSub
+        self.client.register_plugin('xep_0163') # PEP
+        self.client.register_plugin('xep_0280') # Message Carbons
+        self.client.register_plugin('xep_0334') # Message Processing Hints
+        try:
+            self.client.register_plugin('xep_0384', pconfig={'fallback_message': '🔒 OMEMO encrypted message'})
+            logging.info("slixmpp-omemo xep_0384 plugin registered successfully.")
+        except Exception as e:
+            logging.error(f"Failed to register xep_0384 plugin: {e}")
         
         # Register handlers
         self.client.add_event_handler("session_start", self._on_session_start)
@@ -462,59 +534,45 @@ class XmppBackend(QObject):
     async def _send_message_async(self, mto, body, msg_id):
         status = 'sent'
         try:
-            if self.omemo_mgr.is_encryption_enabled(mto):
-                # Ensure peer bundle keys are fetched before encrypting
-                peer_fps = self.omemo_mgr.get_peer_fingerprints(mto)
-                if not peer_fps:
-                    logging.info(f"Peer OMEMO key bundle missing for {mto}. Fetching keys asynchronously before sending...")
-                    await self._fetch_omemo_peer_keys_async(mto)
-                    
-                omemo_data, fallback = self.omemo_mgr.encrypt_payload(mto, body)
-                if omemo_data:
-                    msg = self.client.make_message(mto=mto, mbody=fallback, mtype='chat')
-                    msg['id'] = str(msg_id)
-                    msg['request_receipt'] = True
-                    
-                    # Construct <encrypted xmlns="eu.siacs.conversations.axolotl"> XML element
-                    enc_elem = ET.Element('{eu.siacs.conversations.axolotl}encrypted')
-                    header_elem = ET.SubElement(enc_elem, 'header', sid=str(omemo_data['sid']))
-                    for rid, key_info in omemo_data['keys'].items():
-                        k_elem = ET.SubElement(header_elem, 'key', rid=str(rid))
-                        if isinstance(key_info, dict):
-                            if key_info.get('prekey'):
-                                k_elem.set('prekey', 'true')
-                            if key_info.get('dh'):
-                                k_elem.set('dh', key_info['dh'])
-                            if key_info.get('n') is not None:
-                                k_elem.set('n', str(key_info['n']))
-                            if key_info.get('iv'):
-                                k_elem.set('iv', key_info['iv'])
-                            if key_info.get('ek'):
-                                k_elem.set('ek', key_info['ek'])
-                            if key_info.get('ik'):
-                                k_elem.set('ik', key_info['ik'])
-                            k_elem.text = key_info.get('key', '')
-                        else:
-                            k_elem.text = str(key_info)
+            msg = self.client.make_message(mto=mto, mbody=body, mtype='chat')
+            msg['id'] = str(msg_id)
+            msg['request_receipt'] = True
 
-                    iv_elem = ET.SubElement(header_elem, 'iv')
-                    iv_elem.text = omemo_data['iv']
-                    payload_elem = ET.SubElement(enc_elem, 'payload')
-                    payload_elem.text = omemo_data['payload']
-                    
-                    msg.append(enc_elem)
-                    msg.send()
-                    logging.info(f"Sent OMEMO encrypted message to {mto} (Target Devices: {list(omemo_data['keys'].keys())})")
-                else:
-                    msg = self.client.make_message(mto=mto, mbody=body, mtype='chat')
-                    msg['id'] = str(msg_id)
-                    msg['request_receipt'] = True
-                    msg.send()
-            else:
-                msg = self.client.make_message(mto=mto, mbody=body, mtype='chat')
-                msg['id'] = str(msg_id)
-                msg['request_receipt'] = True
-                msg.send()
+            if self.omemo_mgr.is_encryption_enabled(mto):
+                if self.client and 'xep_0384' in self.client.plugin:
+                    try:
+                        encrypted_msg, errors = await self.client.plugin['xep_0384'].encrypt_message(msg, mto)
+                        if encrypted_msg:
+                            msg = encrypted_msg
+                            logging.info(f"Successfully encrypted OMEMO message via xep_0384 for {mto}")
+                        if errors:
+                            logging.warning(f"xep_0384 encryption non-critical info: {errors}")
+                    except Exception as e:
+                        logging.error(f"xep_0384 encryption exception for {mto}: {e}", exc_info=True)
+                        # Fallback to custom payload if xep_0384 fails
+                        peer_fps = self.omemo_mgr.get_peer_fingerprints(mto)
+                        if not peer_fps:
+                            await self._fetch_omemo_peer_keys_async(mto)
+                        omemo_data, fallback = self.omemo_mgr.encrypt_payload(mto, body)
+                        if omemo_data:
+                            msg = self.client.make_message(mto=mto, mbody=fallback, mtype='chat')
+                            msg['id'] = str(msg_id)
+                            msg['request_receipt'] = True
+                            enc_elem = ET.Element('{eu.siacs.conversations.axolotl}encrypted')
+                            header_elem = ET.SubElement(enc_elem, 'header', sid=str(omemo_data['sid']))
+                            for rid, key_info in omemo_data['keys'].items():
+                                k_elem = ET.SubElement(header_elem, 'key', rid=str(rid))
+                                if isinstance(key_info, dict):
+                                    if key_info.get('prekey'):
+                                        k_elem.set('prekey', 'true')
+                                    k_elem.text = key_info.get('key', '')
+                            iv_elem = ET.SubElement(header_elem, 'iv')
+                            iv_elem.text = omemo_data['iv']
+                            payload_elem = ET.SubElement(enc_elem, 'payload')
+                            payload_elem.text = omemo_data['payload']
+                            msg.append(enc_elem)
+
+            msg.send()
         except Exception as e:
             logging.error(f"Failed to send message over socket: {e}")
             status = 'error'
@@ -856,55 +914,67 @@ class XmppBackend(QObject):
             self._set_contact_typing(sender, st == 'composing')
 
         if msg['type'] in ('chat', 'normal'):
-            # Check for OMEMO encrypted payload element in stanza XML
-            xml_elem = msg.xml if hasattr(msg, 'xml') else None
-            if xml_elem is not None:
-                enc_nodes = [e for e in xml_elem.iter() if e.tag.endswith('encrypted')]
-                if enc_nodes:
-                    enc_node = enc_nodes[0]
-                    sid = None
-                    iv_b64 = None
-                    payload_b64 = None
-                    keys_map = {}
-                    
-                    for child in enc_node.iter():
-                        if child.tag.endswith('header'):
-                            sid = child.get('sid')
-                        elif child.tag.endswith('key'):
-                            rid = child.get('rid')
-                            if rid:
-                                k_data = {
-                                    'key': child.text.strip() if child.text else '',
-                                    'iv': child.get('iv'),
-                                    'dh': child.get('dh'),
-                                    'n': int(child.get('n')) if child.get('n') is not None else 0,
-                                    'prekey': child.get('prekey') == 'true',
-                                    'ek': child.get('ek'),
-                                    'ik': child.get('ik')
-                                }
-                                try:
-                                    keys_map[int(rid)] = k_data
-                                except ValueError:
-                                    keys_map[rid] = k_data
-                        elif child.tag.endswith('iv') and child.text:
-                            iv_b64 = child.text.strip()
-                        elif child.tag.endswith('payload') and child.text:
-                            payload_b64 = child.text.strip()
-                            
-                    omemo_data = {
-                        'sid': sid,
-                        'iv': iv_b64,
-                        'payload': payload_b64,
-                        'keys': keys_map
-                    }
-                    
-                    is_omemo_decrypted = False
-                    decrypted_body = self.omemo_mgr.decrypt_payload(sender, omemo_data)
-                    if decrypted_body:
-                        msg['body'] = decrypted_body
-                        is_omemo_decrypted = True
-                        self.omemo_mgr.set_encryption_enabled(sender, True)
-                        logging.info(f"Successfully decrypted incoming OMEMO message from {sender}")
+            is_omemo_decrypted = False
+            if self.client and 'xep_0384' in self.client.plugin:
+                if self.client.plugin['xep_0384'].is_encrypted(msg):
+                    try:
+                        decrypted_msg, sender_info = await self.client.plugin['xep_0384'].decrypt_message(msg)
+                        if decrypted_msg and decrypted_msg['body']:
+                            msg['body'] = decrypted_msg['body']
+                            is_omemo_decrypted = True
+                            self.omemo_mgr.set_encryption_enabled(sender, True)
+                            logging.info(f"Successfully decrypted incoming OMEMO message via xep_0384 from {sender}")
+                    except Exception as e:
+                        logging.error(f"xep_0384 decryption failed for message from {sender}: {e}")
+
+            if not is_omemo_decrypted:
+                xml_elem = msg.xml if hasattr(msg, 'xml') else None
+                if xml_elem is not None:
+                    enc_nodes = [e for e in xml_elem.iter() if e.tag.endswith('encrypted')]
+                    if enc_nodes:
+                        enc_node = enc_nodes[0]
+                        sid = None
+                        iv_b64 = None
+                        payload_b64 = None
+                        keys_map = {}
+                        
+                        for child in enc_node.iter():
+                            if child.tag.endswith('header'):
+                                sid = child.get('sid')
+                            elif child.tag.endswith('key'):
+                                rid = child.get('rid')
+                                if rid:
+                                    k_data = {
+                                        'key': child.text.strip() if child.text else '',
+                                        'iv': child.get('iv'),
+                                        'dh': child.get('dh'),
+                                        'n': int(child.get('n')) if child.get('n') is not None else 0,
+                                        'prekey': child.get('prekey') == 'true',
+                                        'ek': child.get('ek'),
+                                        'ik': child.get('ik')
+                                    }
+                                    try:
+                                        keys_map[int(rid)] = k_data
+                                    except ValueError:
+                                        keys_map[rid] = k_data
+                            elif child.tag.endswith('iv') and child.text:
+                                iv_b64 = child.text.strip()
+                            elif child.tag.endswith('payload') and child.text:
+                                payload_b64 = child.text.strip()
+                                
+                        omemo_data = {
+                            'sid': sid,
+                            'iv': iv_b64,
+                            'payload': payload_b64,
+                            'keys': keys_map
+                        }
+                        
+                        decrypted_body = self.omemo_mgr.decrypt_payload(sender, omemo_data)
+                        if decrypted_body:
+                            msg['body'] = decrypted_body
+                            is_omemo_decrypted = True
+                            self.omemo_mgr.set_encryption_enabled(sender, True)
+                            logging.info(f"Successfully decrypted incoming OMEMO message from {sender}")
 
         if msg['type'] in ('chat', 'normal') and msg['body']:
             self._set_contact_typing(sender, False)

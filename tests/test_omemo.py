@@ -5,7 +5,7 @@ import xml.etree.ElementTree as ET
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from omemo.crypto import (
+from qubber_omemo.crypto import (
     generate_identity_keypair,
     split_identity_key,
     sign_ed25519,
@@ -14,8 +14,8 @@ from omemo.crypto import (
     b64_encode,
     b64_decode
 )
-from omemo.x3dh import X3DHAgreement
-from omemo.manager import OmemoManager
+from qubber_omemo.x3dh import X3DHAgreement
+from qubber_omemo.manager import OmemoManager
 
 class TestOmemoEngine(unittest.TestCase):
     def test_key_generation_and_signatures(self):
@@ -41,7 +41,7 @@ class TestOmemoEngine(unittest.TestCase):
 
         # Bob prekey setup
         bob_ed_priv, _ = split_identity_key(bob_priv)
-        from omemo.crypto import generate_x25519_keypair
+        from qubber_omemo.crypto import generate_x25519_keypair
         spk_priv, spk_pub = generate_x25519_keypair()
         spk_sig = sign_ed25519(bob_ed_priv, spk_pub)
 
