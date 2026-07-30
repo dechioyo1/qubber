@@ -2,8 +2,14 @@ import asyncio
 import logging
 import hashlib
 import base64
+import platform
+import shutil
+import tempfile
+import subprocess
 from datetime import datetime, date
 from PySide6.QtCore import QObject, Signal, Slot, Property, QSettings, QStandardPaths
+from PySide6.QtWidgets import QFileDialog
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 import slixmpp
 import sqlite3
 import os
@@ -144,6 +150,7 @@ class XmppBackend(QObject):
     activeChatDetailsChanged = Signal()
     subscriptionRequested = Signal(str)
     omemoDetailsChanged = Signal()
+    mediaUrlResolved = Signal(str, str)
 
     def __init__(self, roster_model, chats_list_model, chat_model, parent=None):
         super().__init__(parent)
@@ -178,11 +185,22 @@ class XmppBackend(QObject):
         os.makedirs(data_dir, exist_ok=True)
         self.cache_dir = os.path.join(data_dir, "cache", "avatars")
         os.makedirs(self.cache_dir, exist_ok=True)
+        self.decrypted_cache_dir = os.path.join(data_dir, "cache", "decrypted")
+        os.makedirs(self.decrypted_cache_dir, exist_ok=True)
+        self._resolved_media_urls = {}
+        self._background_tasks = set()
+        self._active_downloads = set()
         self.db_path = os.path.join(data_dir, "qubber.db")
         self.db_conn = sqlite3.connect(self.db_path)
         self._init_db()
         
         self.omemo_mgr = OmemoManager(data_dir=data_dir)
+
+    def _create_background_task(self, coro):
+        task = asyncio.create_task(coro)
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
+        return task
 
     # --- Properties ---
     @Property(str, notify=connectionStatusChanged)
@@ -403,6 +421,9 @@ class XmppBackend(QObject):
         self.client.use_message_ids = True
         self.client.register_plugin('xep_0004') # Data Forms
         self.client.register_plugin('xep_0030') # Service Discovery
+        self.client.register_plugin('xep_0128') # Service Discovery Extensions (XEP-0232)
+        self.client.register_plugin('xep_0115') # Entity Capabilities
+        self.client.register_plugin('xep_0092') # Software Version
         self.client.register_plugin('xep_0054') # vCard-temp (Avatars)
         self.client.register_plugin('xep_0153') # vCard-Based Avatars
         self.client.register_plugin('xep_0084') # User Avatar
@@ -416,6 +437,26 @@ class XmppBackend(QObject):
         self.client.register_plugin('xep_0163') # PEP
         self.client.register_plugin('xep_0280') # Message Carbons
         self.client.register_plugin('xep_0334') # Message Processing Hints
+
+        # Configure XEP-0115 Entity Capabilities node
+        self.client.plugin['xep_0115'].node = 'https://qubber.im'
+
+        # Configure XEP-0092 Software Version
+        self.client.plugin['xep_0092'].software_name = 'Qubber'
+        self.client.plugin['xep_0092'].version = '1.0.0'
+        self.client.plugin['xep_0092'].os = f"{platform.system()} {platform.release()}"
+
+        # Configure XEP-0232 Software Information Data Form
+        sw_form = self.client.plugin['xep_0004'].make_form(ftype='result')
+        sw_form.add_field(var='FORM_TYPE', type='hidden', value='urn:xmpp:dataforms:softwareinfo')
+        sw_form.add_field(var='software', value='Qubber')
+        sw_form.add_field(var='software_version', value='1.0.0')
+        sw_form.add_field(var='os', value=platform.system())
+        sw_form.add_field(var='os_version', value=platform.release())
+        self.client.plugin['xep_0128'].add_extended_info(fdata=sw_form)
+        self.client.plugin['xep_0030'].add_feature('urn:xmpp:dataforms:softwareinfo')
+        self.client.plugin['xep_0030'].add_feature('jabber:iq:version')
+
         try:
             self.client.register_plugin('xep_0384', pconfig={'fallback_message': '🔒 OMEMO encrypted message'})
             logging.info("slixmpp-omemo xep_0384 plugin registered successfully.")
@@ -454,6 +495,12 @@ class XmppBackend(QObject):
 
     @Slot()
     def logout(self):
+        for task in list(self._background_tasks):
+            if not task.done():
+                task.cancel()
+        self._background_tasks.clear()
+        self._active_downloads.clear()
+
         if self.client and self.client.is_connected():
             try:
                 logging.info("Sending unavailable presence before disconnect...")
@@ -605,13 +652,71 @@ class XmppBackend(QObject):
         try:
             if not self.client or not self.client.is_connected():
                 raise Exception("Not connected to XMPP server")
-                
-            # Perform upload via slixmpp xep_0363 plugin
-            download_url = await self.client['xep_0363'].upload_file(local_path)
-            logging.info(f"File uploaded successfully! URL: {download_url}")
             
-            # Send the URL as a normal chat message
-            self.sendMessage(download_url)
+            active_jid = self._active_chat_jid
+            is_encrypted = self.omemo_mgr.is_encryption_enabled(active_jid) if active_jid else False
+            
+            upload_path = local_path
+            temp_enc_file = None
+            key = None
+            iv = None
+            
+            if is_encrypted:
+                key = os.urandom(32)
+                iv = os.urandom(12)
+                
+                with open(local_path, 'rb') as f:
+                    plaintext = f.read()
+                
+                aesgcm = AESGCM(key)
+                ciphertext_with_tag = aesgcm.encrypt(iv, plaintext, None)
+                
+                # Save to temporary encrypted file
+                temp_enc_file = tempfile.NamedTemporaryFile(delete=False, suffix=".enc")
+                temp_enc_file.write(ciphertext_with_tag)
+                temp_enc_file.close()
+                upload_path = temp_enc_file.name
+                logging.info(f"Encrypted local file using AES-256-GCM prior to HTTP upload: {upload_path}")
+
+            try:
+                # Perform upload via slixmpp xep_0363 plugin
+                download_url = await self.client['xep_0363'].upload_file(upload_path)
+                logging.info(f"File uploaded successfully! Raw URL: {download_url}")
+            finally:
+                if temp_enc_file and os.path.exists(temp_enc_file.name):
+                    try:
+                        os.remove(temp_enc_file.name)
+                    except Exception:
+                        pass
+
+            if is_encrypted and key and iv:
+                # Format according to XEP-0454 aesgcm:// URI scheme
+                iv_hex = iv.hex()
+                key_hex = key.hex()
+                # Replace http(s):// with aesgcm://
+                if download_url.startswith("https://"):
+                    aes_url = download_url.replace("https://", "aesgcm://", 1)
+                elif download_url.startswith("http://"):
+                    aes_url = download_url.replace("http://", "aesgcm://", 1)
+                else:
+                    aes_url = f"aesgcm://{download_url}"
+                
+                final_url = f"{aes_url}#{iv_hex}{key_hex}"
+                logging.info(f"Constructed XEP-0454 aesgcm URI: {final_url}")
+
+                # Cache local original file for instant local display
+                url_hash = hashlib.sha256(final_url.encode('utf-8')).hexdigest()
+                ext = os.path.splitext(local_path)[1] or ".bin"
+                cached_path = os.path.join(self.decrypted_cache_dir, f"{url_hash}{ext}")
+                try:
+                    shutil.copyfile(local_path, cached_path)
+                    self._resolved_media_urls[final_url] = f"file://{cached_path}"
+                except Exception as e:
+                    logging.debug(f"Could not pre-cache local upload: {e}")
+
+                self.sendMessage(final_url)
+            else:
+                self.sendMessage(download_url)
             
         except Exception as e:
             logging.error(f"HTTP File Upload failed: {e}", exc_info=True)
@@ -620,12 +725,156 @@ class XmppBackend(QObject):
             timestamp = now_dt.strftime("%H:%M")
             created_at_str = now_dt.strftime("%Y-%m-%d %H:%M:%S")
             date_hdr = format_date_header(now_dt)
-            my_bare_jid = self.client.boundjid.bare
+            my_bare_jid = self.client.boundjid.bare if (self.client and self.client.boundjid) else self._my_jid
             mto = self._active_chat_jid
             if mto:
                 msg_id = self.save_message_to_db(my_bare_jid, mto, 'me', f"Failed to upload file: {e}", timestamp, True, status='error', created_at=created_at_str)
                 self.chat_model.add_message('me', f"Failed to upload file: {e}", timestamp, True, msg_id=msg_id, status='error', date_header=date_hdr)
                 self.update_chats_list_model()
+
+    @Slot(str, result=str)
+    def getResolvedMediaUrl(self, url):
+        if not url:
+            return ""
+        url_str = str(url).strip()
+        if not url_str.startswith("aesgcm://"):
+            return url_str
+        
+        # Check in-memory resolution
+        if url_str in self._resolved_media_urls:
+            return self._resolved_media_urls[url_str]
+        
+        # Check disk cache
+        url_hash = hashlib.sha256(url_str.encode('utf-8')).hexdigest()
+        if os.path.exists(self.decrypted_cache_dir):
+            for fname in os.listdir(self.decrypted_cache_dir):
+                if fname.startswith(url_hash):
+                    cached_path = os.path.join(self.decrypted_cache_dir, fname)
+                    file_url = f"file://{cached_path}"
+                    self._resolved_media_urls[url_str] = file_url
+                    return file_url
+        
+        # Not yet cached; launch background download and decryption if not already active
+        if url_str not in self._active_downloads:
+            self._active_downloads.add(url_str)
+            self._create_background_task(self._download_and_decrypt_aesgcm_async(url_str))
+            
+        # Return empty string to prevent QML Image from throwing unknown protocol "aesgcm" warning
+        return ""
+
+    async def _download_and_decrypt_aesgcm_async(self, url_str):
+        try:
+            if '#' not in url_str:
+                logging.error(f"Invalid aesgcm URL format: missing fragment in {url_str}")
+                return
+            
+            base_part, fragment = url_str.split('#', 1)
+            if len(fragment) < 88:
+                logging.error(f"Invalid aesgcm fragment length ({len(fragment)}) in {url_str}")
+                return
+            
+            iv_hex = fragment[:24]
+            key_hex = fragment[24:88]
+            
+            iv = bytes.fromhex(iv_hex)
+            key = bytes.fromhex(key_hex)
+            
+            http_url = base_part.replace('aesgcm://', 'https://', 1)
+            logging.info(f"Downloading XEP-0454 encrypted media from {http_url}...")
+            
+            loop = asyncio.get_running_loop()
+            req = urllib.request.Request(http_url, headers={'User-Agent': 'Qubber/1.0'})
+            
+            def _fetch():
+                with urllib.request.urlopen(req, timeout=30) as resp:
+                    return resp.read()
+            
+            encrypted_payload = await loop.run_in_executor(None, _fetch)
+            if len(encrypted_payload) <= 16:
+                raise Exception("Encrypted payload too short for GCM tag")
+            
+            aesgcm = AESGCM(key)
+            decrypted_bytes = aesgcm.decrypt(iv, encrypted_payload, None)
+            
+            parsed = urllib.parse.urlparse(http_url)
+            ext = os.path.splitext(parsed.path)[1] or ".png"
+            
+            url_hash = hashlib.sha256(url_str.encode('utf-8')).hexdigest()
+            out_filename = f"{url_hash}{ext}"
+            out_path = os.path.join(self.decrypted_cache_dir, out_filename)
+            
+            with open(out_path, 'wb') as f:
+                f.write(decrypted_bytes)
+            
+            local_file_url = f"file://{out_path}"
+            self._resolved_media_urls[url_str] = local_file_url
+            logging.info(f"Decrypted aesgcm media saved to {out_path}")
+            
+            self.mediaUrlResolved.emit(url_str, local_file_url)
+            
+        except Exception as e:
+            logging.error(f"Failed to download/decrypt aesgcm media for {url_str}: {e}", exc_info=True)
+        finally:
+            self._active_downloads.discard(url_str)
+
+    @Slot(str)
+    def saveImageAs(self, image_url):
+        if not image_url:
+            return
+        
+        logging.info(f"saveImageAs requested for URL: {image_url}")
+        
+        resolved = self.getResolvedMediaUrl(image_url)
+        source_path = ""
+        
+        if resolved.startswith("file://"):
+            parsed = urllib.parse.urlparse(resolved)
+            source_path = urllib.request.url2pathname(parsed.path)
+        elif os.path.exists(image_url):
+            source_path = image_url
+        elif image_url.startswith("file://"):
+            parsed = urllib.parse.urlparse(image_url)
+            source_path = urllib.request.url2pathname(parsed.path)
+
+        default_filename = "image.png"
+        if source_path:
+            default_filename = os.path.basename(source_path)
+        elif '#' in image_url:
+            base_url = image_url.split('#')[0]
+            default_filename = os.path.basename(urllib.parse.urlparse(base_url).path) or "image.png"
+        elif '://' in image_url:
+            default_filename = os.path.basename(urllib.parse.urlparse(image_url).path) or "image.png"
+
+        default_dir = os.path.expanduser("~/Downloads")
+        if not os.path.exists(default_dir):
+            default_dir = os.path.expanduser("~")
+            
+        save_path, _ = QFileDialog.getSaveFileName(
+            None,
+            "Save Image As",
+            os.path.join(default_dir, default_filename),
+            "Images (*.png *.jpg *.jpeg *.webp *.gif *.bmp);;All Files (*)"
+        )
+        
+        if not save_path:
+            return
+            
+        logging.info(f"Target save path selected: {save_path}")
+        try:
+            if source_path and os.path.exists(source_path):
+                shutil.copyfile(source_path, save_path)
+                logging.info(f"Image saved successfully to {save_path}")
+            else:
+                req_url = image_url
+                if req_url.startswith("aesgcm://"):
+                    base_part = req_url.split('#')[0]
+                    req_url = base_part.replace("aesgcm://", "https://", 1)
+                
+                with urllib.request.urlopen(req_url) as resp, open(save_path, 'wb') as out_f:
+                    out_f.write(resp.read())
+                logging.info(f"Downloaded and saved image to {save_path}")
+        except Exception as e:
+            logging.error(f"Failed to save image to {save_path}: {e}", exc_info=True)
 
     @Slot(str, str)
     def addContact(self, jid, nickname=""):
@@ -663,6 +912,24 @@ class XmppBackend(QObject):
             return
         self.client.send_presence(ptype='unsubscribed', pto=jid)
 
+    @Slot(str)
+    def fetchSoftwareVersion(self, jid):
+        if self.client and self.client.is_connected() and jid:
+            asyncio.create_task(self._fetch_software_version_async(jid))
+
+    async def _fetch_software_version_async(self, jid):
+        try:
+            res = await self.client.plugin['xep_0092'].get_version(jid)
+            query = res.xml.find('{jabber:iq:version}query') if hasattr(res, 'xml') else None
+            name = query.findtext('{jabber:iq:version}name') if query is not None else "Unknown"
+            version = query.findtext('{jabber:iq:version}version') if query is not None else "Unknown"
+            os_name = query.findtext('{jabber:iq:version}os') if query is not None else "Unknown"
+            logging.info(f"Retrieved XEP-0092 software version for {jid}: {name} {version} ({os_name})")
+            return {'name': name, 'version': version, 'os': os_name}
+        except Exception as e:
+            logging.warning(f"Could not fetch software version for {jid}: {e}")
+            return None
+
     # --- Slixmpp Event Handlers ---
     async def _on_session_start(self, event):
         logging.info("XMPP Session started successfully.")
@@ -677,6 +944,14 @@ class XmppBackend(QObject):
             self._temp_remember_me
         )
         
+        # Update Entity Capabilities (XEP-0115)
+        if self.client and 'xep_0115' in self.client.plugin:
+            try:
+                await self.client.plugin['xep_0115'].update_caps()
+                logging.info("Entity Capabilities (XEP-0115) updated.")
+            except Exception as e:
+                logging.error(f"Failed to update entity caps: {e}")
+
         # Send initial presence
         self.client.send_presence()
         
@@ -1018,6 +1293,7 @@ class XmppBackend(QObject):
             
             if self._active_chat_jid == sender:
                 self.chat_model.add_message(sender, body, timestamp, False, msg_id=msg_id, status='read', date_header=date_hdr, is_encrypted=is_encrypted_flag)
+                self._play_sound("typing.opus")
             else:
                 self._unread_counts[sender] = self._unread_counts.get(sender, 0) + 1
                 
@@ -1028,7 +1304,81 @@ class XmppBackend(QObject):
                 else:
                     self.roster_model.update_contact(sender, unreadCount=self._unread_counts[sender])
 
+                # Send Linux desktop notification & play message.opus sound for background contacts
+                contact_name = self._get_contact_display_name(sender)
+                avatar_path = self._get_avatar_file(sender)
+                self._send_linux_notification(contact_name, body, avatar_path)
+                self._play_sound("message.opus")
+
             self.update_chats_list_model()
+
+    def _get_contact_display_name(self, bare_jid):
+        if not bare_jid:
+            return ""
+        if hasattr(self, 'roster_model') and self.roster_model:
+            for contact in self.roster_model._contacts:
+                if contact.get('jid') == bare_jid:
+                    name = contact.get('name')
+                    if name:
+                        return name
+        try:
+            cursor = self.db_conn.cursor()
+            cursor.execute("SELECT name FROM contacts WHERE jid = ?", (bare_jid,))
+            row = cursor.fetchone()
+            if row and row[0]:
+                return row[0]
+        except Exception:
+            pass
+        return bare_jid.split('@')[0]
+
+    def _send_linux_notification(self, title, body, icon_path=None):
+        try:
+            cmd = ['notify-send', '-a', 'Qubber']
+            
+            clean_icon_path = ""
+            if icon_path:
+                clean_icon_path = str(icon_path).replace("file://", "").strip()
+            
+            if clean_icon_path and os.path.exists(clean_icon_path):
+                cmd.extend(['-i', os.path.abspath(clean_icon_path)])
+            else:
+                default_person_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "qml", "icons", "default_avatar.png"))
+                if not os.path.exists(default_person_path):
+                    default_person_path = os.path.abspath(os.path.join("qml", "icons", "default_avatar.png"))
+                
+                if os.path.exists(default_person_path):
+                    cmd.extend(['-i', default_person_path])
+                else:
+                    cmd.extend(['-i', 'avatar-default'])
+                    
+            cmd.extend([str(title), str(body)])
+            subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            logging.info(f"Linux desktop notification sent for: {title} (icon: {clean_icon_path or 'default_avatar'})")
+        except Exception as e:
+            logging.error(f"Failed to send Linux notification: {e}")
+
+    def _play_sound(self, sound_filename):
+        sound_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sounds")
+        sound_path = os.path.join(sound_dir, sound_filename)
+        if not os.path.exists(sound_path):
+            sound_path = os.path.abspath(os.path.join("sounds", sound_filename))
+        if not os.path.exists(sound_path):
+            logging.warning(f"Sound file not found: {sound_path}")
+            return
+
+        try:
+            if shutil.which("paplay"):
+                subprocess.Popen(["paplay", sound_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            elif shutil.which("pw-play"):
+                subprocess.Popen(["pw-play", sound_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            elif shutil.which("ffplay"):
+                subprocess.Popen(["ffplay", "-nodisp", "-autoexit", sound_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            elif shutil.which("aplay"):
+                subprocess.Popen(["aplay", sound_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            else:
+                logging.warning(f"No suitable audio player binary found for {sound_filename}")
+        except Exception as e:
+            logging.error(f"Failed to play sound {sound_filename}: {e}")
 
     async def _on_receipt_received(self, msg):
         acked_msg_id_str = msg['receipt']

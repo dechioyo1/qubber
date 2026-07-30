@@ -1091,6 +1091,20 @@ Item {
         focus: true
         padding: 0
         property string imageSource: ""
+        property string resolvedPreviewSource: imagePreviewDialog.imageSource ? xmppBackend.getResolvedMediaUrl(imagePreviewDialog.imageSource) : ""
+
+        Connections {
+            target: xmppBackend
+            function onMediaUrlResolved(origUrl, resolvedUrl) {
+                if (origUrl === imagePreviewDialog.imageSource) {
+                    imagePreviewDialog.resolvedPreviewSource = resolvedUrl;
+                }
+            }
+        }
+
+        onImageSourceChanged: {
+            resolvedPreviewSource = imagePreviewDialog.imageSource ? xmppBackend.getResolvedMediaUrl(imagePreviewDialog.imageSource) : "";
+        }
         
         background: Rectangle {
             color: "#1e293bcc"
@@ -1106,33 +1120,99 @@ Item {
             Image {
                 anchors.fill: parent
                 anchors.margins: 16
-                source: imagePreviewDialog.imageSource
+                source: imagePreviewDialog.resolvedPreviewSource
                 fillMode: Image.PreserveAspectFit
                 asynchronous: true
             }
             
-            Button {
+            MouseArea {
+                anchors.fill: parent
+                acceptedButtons: Qt.RightButton
+                onClicked: (mouse) => {
+                    if (mouse.button === Qt.RightButton) {
+                        previewContextMenu.popup()
+                    }
+                }
+            }
+
+            Menu {
+                id: previewContextMenu
+                padding: 6
+                background: Rectangle {
+                    implicitWidth: 180
+                    color: window.colCard
+                    border.color: window.colBorder
+                    radius: 8
+                }
+                MenuItem {
+                    id: savePreviewItem
+                    text: "Save image as..."
+                    implicitWidth: 168
+                    implicitHeight: 36
+                    contentItem: Text {
+                        text: savePreviewItem.text
+                        color: savePreviewItem.hovered ? "white" : window.colText
+                        font.pixelSize: 14
+                        leftPadding: 8
+                        verticalAlignment: Text.AlignVCenter
+                    }
+                    background: Rectangle {
+                        color: savePreviewItem.hovered ? window.colPrimary : "transparent"
+                        radius: 6
+                    }
+                    onTriggered: {
+                        xmppBackend.saveImageAs(imagePreviewDialog.imageSource)
+                    }
+                }
+            }
+
+            RowLayout {
                 anchors.top: parent.top
                 anchors.right: parent.right
                 anchors.margins: 10
-                implicitWidth: 32
-                implicitHeight: 32
-                
-                contentItem: Text {
-                    text: "✕"
-                    color: "white"
-                    font.pixelSize: 16
-                    font.bold: true
-                    horizontalAlignment: Text.AlignHCenter
-                    verticalAlignment: Text.AlignVCenter
+                spacing: 8
+
+                Button {
+                    id: savePreviewBtn
+                    implicitWidth: 32
+                    implicitHeight: 32
+
+                    contentItem: Image {
+                        anchors.centerIn: parent
+                        width: 18
+                        height: 18
+                        source: "icons/download_white.svg"
+                        sourceSize: Qt.size(18, 18)
+                    }
+
+                    background: Rectangle {
+                        color: savePreviewBtn.hovered ? window.colPrimary : "#00000080"
+                        radius: 16
+                    }
+
+                    onClicked: xmppBackend.saveImageAs(imagePreviewDialog.imageSource)
                 }
-                
-                background: Rectangle {
-                    color: "#00000080"
-                    radius: 16
+
+                Button {
+                    implicitWidth: 32
+                    implicitHeight: 32
+
+                    contentItem: Text {
+                        text: "✕"
+                        color: "white"
+                        font.pixelSize: 16
+                        font.bold: true
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+
+                    background: Rectangle {
+                        color: "#00000080"
+                        radius: 16
+                    }
+
+                    onClicked: imagePreviewDialog.close()
                 }
-                
-                onClicked: imagePreviewDialog.close()
             }
         }
     }

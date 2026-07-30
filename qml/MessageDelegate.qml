@@ -11,21 +11,33 @@ Item {
 
     property bool isImg: isImageLink(model.body)
     property bool isGif: isGifLink(model.body)
+    property string resolvedImgSrc: root.isImg ? xmppBackend.getResolvedMediaUrl(model.body) : ""
+
+    Connections {
+        target: xmppBackend
+        function onMediaUrlResolved(origUrl, resolvedUrl) {
+            if (origUrl === model.body) {
+                root.resolvedImgSrc = resolvedUrl;
+            }
+        }
+    }
 
     function isImageLink(text) {
         if (!text) return false;
         var t = text.trim();
         if (t.indexOf(" ") !== -1) return false;
-        if (!t.match(/^https?:\/\//i)) return false;
-        return !!t.match(/\.(png|jpg|jpeg|gif|webp|bmp)(\?.*)?$/i);
+        if (t.match(/^aesgcm:\/\//i)) return true;
+        if (!t.match(/^(https?|file):\/\//i)) return false;
+        return !!t.match(/\.(png|jpg|jpeg|gif|webp|bmp)(\?.*)?(#.*)?$/i);
     }
     
     function isGifLink(text) {
         if (!text) return false;
         var t = text.trim();
         if (t.indexOf(" ") !== -1) return false;
-        if (!t.match(/^https?:\/\//i)) return false;
-        return !!t.match(/\.gif(\?.*)?$/i);
+        if (t.match(/^aesgcm:\/\/.*\.gif/i)) return true;
+        if (!t.match(/^(https?|file):\/\//i)) return false;
+        return !!t.match(/\.gif(\?.*)?(#.*)?$/i);
     }
 
     Text {
@@ -223,7 +235,7 @@ Item {
             visible: root.isImg && !root.isGif
             anchors.fill: parent
             fillMode: Image.PreserveAspectCrop
-            source: (root.isImg && !root.isGif) ? model.body : ""
+            source: (root.isImg && !root.isGif) ? root.resolvedImgSrc : ""
             asynchronous: true
             
             width: Math.min(root.width * 0.6, 260)
@@ -248,7 +260,7 @@ Item {
             visible: root.isImg && root.isGif
             anchors.fill: parent
             fillMode: Image.PreserveAspectCrop
-            source: (root.isImg && root.isGif) ? model.body : ""
+            source: (root.isImg && root.isGif) ? root.resolvedImgSrc : ""
             asynchronous: true
             
             width: Math.min(root.width * 0.6, 260)
@@ -331,7 +343,7 @@ Item {
                     var p = root.parent;
                     while (p) {
                         if (p.objectName === "chatView") {
-                            p.showImagePreview(model.body);
+                            p.showImagePreview(root.resolvedImgSrc || model.body);
                             break;
                         }
                         p = p.parent;
@@ -356,6 +368,29 @@ Item {
             radius: 8
         }
         
+        MenuItem {
+            id: saveImageItem
+            visible: root.isImg
+            text: "Save image as..."
+            implicitWidth: 180
+            implicitHeight: visible ? 36 : 0
+            
+            contentItem: Text {
+                text: saveImageItem.text
+                color: saveImageItem.hovered ? "white" : window.colText
+                font.pixelSize: 14
+                leftPadding: 8
+                verticalAlignment: Text.AlignVCenter
+            }
+            background: Rectangle {
+                color: saveImageItem.hovered ? window.colPrimary : "transparent"
+                radius: 6
+            }
+            onTriggered: {
+                xmppBackend.saveImageAs(messageContextMenu.messageBody)
+            }
+        }
+
         MenuItem {
             id: copyItem
             text: "Copy text"
