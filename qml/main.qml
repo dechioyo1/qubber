@@ -130,7 +130,7 @@ ApplicationWindow {
                                 radius: 4
                                 Layout.alignment: Qt.AlignVCenter
                                 color: {
-                                    var st = xmppBackend.myStatus;
+                                    var st = xmppBackend ? xmppBackend.myStatus : "";
                                     if (st === "away") return window.colAway;
                                     if (st === "dnd") return window.colDnd;
                                     return window.colOnline;
@@ -139,11 +139,11 @@ ApplicationWindow {
                             
                             Text {
                                 text: {
-                                    var msg = xmppBackend.myStatusMessage ? xmppBackend.myStatusMessage.trim() : "";
+                                    var msg = (xmppBackend && xmppBackend.myStatusMessage) ? xmppBackend.myStatusMessage.trim() : "";
                                     if (msg !== "") {
                                         return msg.length > 10 ? msg.substring(0, 10) + "..." : msg;
                                     }
-                                    var st = xmppBackend.myStatus;
+                                    var st = xmppBackend ? xmppBackend.myStatus : "";
                                     if (st === "away") return "Away";
                                     if (st === "dnd") return "Busy";
                                     return "Online";
@@ -418,7 +418,7 @@ ApplicationWindow {
                         property bool preventOpen: false
                         
                         contentItem: Text {
-                            text: xmppBackend.myJid !== "" ? xmppBackend.myJid : "Account"
+                            text: (xmppBackend && xmppBackend.myJid !== "") ? xmppBackend.myJid : "Account"
                             color: accountBtn.hovered ? window.colPrimary : window.colText
                             font.pixelSize: 13
                             verticalAlignment: Text.AlignVCenter

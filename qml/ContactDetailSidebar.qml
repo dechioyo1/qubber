@@ -17,14 +17,16 @@ Rectangle {
     property string contactLastSeen: ""
     property string contactStatusMessage: ""
 
-    signal closeRequested()
+    signal closeRequested
 
     function refreshContactData() {
-        if (!contactJid || contactJid === "") return;
-        fingerprintsModel.clear()
-        var fps = xmppBackend.getContactFingerprints(contactJid)
+        if (!contactJid || contactJid === "")
+            return;
+        isBlocked = xmppBackend.isContactBlocked(contactJid);
+        fingerprintsModel.clear();
+        var fps = xmppBackend.getContactFingerprints(contactJid);
         for (var i = 0; i < fps.length; i++) {
-            fingerprintsModel.append(fps[i])
+            fingerprintsModel.append(fps[i]);
         }
     }
 
@@ -36,7 +38,7 @@ Rectangle {
 
     ColumnLayout {
         anchors.fill: parent
-        spacing: 0
+        spacing: 10
 
         // Header
         Rectangle {
@@ -171,7 +173,7 @@ Rectangle {
                         }
 
                         onClicked: {
-                            xmppBackend.selectChat(sidebarRoot.contactJid)
+                            xmppBackend.selectChat(sidebarRoot.contactJid);
                         }
                     }
 
@@ -284,8 +286,16 @@ Rectangle {
                         Button {
                             implicitWidth: 24
                             implicitHeight: 24
-                            contentItem: Text { text: "↻"; color: window.colAccent; font.pixelSize: 14; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
-                            background: Rectangle { color: "transparent" }
+                            contentItem: Text {
+                                text: "↻"
+                                color: window.colAccent
+                                font.pixelSize: 14
+                                horizontalAlignment: Text.AlignHCenter
+                                verticalAlignment: Text.AlignVCenter
+                            }
+                            background: Rectangle {
+                                color: "transparent"
+                            }
                             onClicked: sidebarRoot.refreshContactData()
                         }
                     }
@@ -340,7 +350,7 @@ Rectangle {
                         id: cleanKeysBtn
                         Layout.fillWidth: true
                         implicitHeight: 34
-                        
+
                         contentItem: RowLayout {
                             spacing: 6
                             Layout.alignment: Qt.AlignHCenter
@@ -366,7 +376,7 @@ Rectangle {
                         }
 
                         onClicked: {
-                            confirmCleanKeysDialog.open()
+                            confirmCleanKeysDialog.open();
                         }
                     }
                 }
@@ -413,6 +423,123 @@ Rectangle {
                         }
 
                         onClicked: renameDialog.open()
+                    }
+
+                    Button {
+                        id: blockBtn
+                        Layout.fillWidth: true
+                        implicitHeight: 42
+                        visible: !sidebarRoot.isBlocked
+
+                        contentItem: RowLayout {
+                            spacing: 12
+                            TintedIcon {
+                                Layout.leftMargin: 10
+                                width: 20
+                                height: 20
+                                source: "icons/back_hand.svg"
+                                color: "#ef4444"
+                                sourceSize: Qt.size(20, 20)
+                            }
+                            Text {
+                                text: "Block Contact"
+                                color: "#ef4444"
+                                font.pixelSize: 14
+                                font.bold: true
+                                verticalAlignment: Text.AlignVCenter
+                                Layout.fillWidth: true
+                            }
+                        }
+
+                        background: Rectangle {
+                            color: blockBtn.hovered ? "#ef444415" : "transparent"
+                            border.color: "#ef444460"
+                            border.width: 1
+                            radius: 8
+                        }
+
+                        onClicked: {
+                            xmppBackend.blockContact(sidebarRoot.contactJid);
+                            sidebarRoot.isBlocked = true;
+                        }
+                    }
+
+                    Button {
+                        id: reportSpamBtn
+                        Layout.fillWidth: true
+                        implicitHeight: 42
+                        visible: !sidebarRoot.isBlocked
+
+                        contentItem: RowLayout {
+                            spacing: 12
+                            TintedIcon {
+                                Layout.leftMargin: 10
+                                width: 20
+                                height: 20
+                                source: "icons/report.svg"
+                                color: "#ef4444"
+                                sourceSize: Qt.size(20, 20)
+                            }
+                            Text {
+                                text: "Report & Block (Spam)"
+                                color: "#ef4444"
+                                font.pixelSize: 14
+                                font.bold: true
+                                verticalAlignment: Text.AlignVCenter
+                                Layout.fillWidth: true
+                            }
+                        }
+
+                        background: Rectangle {
+                            color: reportSpamBtn.hovered ? "#ef444415" : "transparent"
+                            border.color: "#ef444460"
+                            border.width: 1
+                            radius: 8
+                        }
+
+                        onClicked: {
+                            xmppBackend.reportAndBlockContact(sidebarRoot.contactJid, "spam");
+                            sidebarRoot.isBlocked = true;
+                        }
+                    }
+
+                    Button {
+                        id: unblockBtn
+                        Layout.fillWidth: true
+                        implicitHeight: 42
+                        visible: sidebarRoot.isBlocked
+
+                        contentItem: RowLayout {
+                            spacing: 12
+                            TintedIcon {
+                                Layout.leftMargin: 10
+                                width: 20
+                                height: 20
+                                source: "icons/check.svg"
+                                color: window.colPrimary
+                                sourceSize: Qt.size(20, 20)
+                            }
+                            Text {
+                                text: "Unblock Contact"
+                                color: window.colPrimary
+                                font.pixelSize: 14
+                                font.bold: true
+                                verticalAlignment: Text.AlignVCenter
+                                Layout.fillWidth: true
+                            }
+                        }
+
+                        background: Rectangle {
+                            color: unblockBtn.hovered ? "#33415530" : "transparent"
+                            border.color: window.colPrimary
+                            border.width: 1
+                            radius: 8
+                        }
+
+                        onClicked: {
+                            xmppBackend.unblockContact(sidebarRoot.contactJid);
+                            sidebarRoot.isBlocked = false;
+                        }
                     }
 
                     Button {
@@ -504,13 +631,21 @@ Rectangle {
 
                 Button {
                     id: saveRenameBtn
-                    contentItem: Text { text: "Save"; color: "white"; font.bold: true; horizontalAlignment: Text.AlignHCenter }
-                    background: Rectangle { color: window.colPrimary; radius: 6 }
+                    contentItem: Text {
+                        text: "Save"
+                        color: "white"
+                        font.bold: true
+                        horizontalAlignment: Text.AlignHCenter
+                    }
+                    background: Rectangle {
+                        color: window.colPrimary
+                        radius: 6
+                    }
                     onClicked: {
                         if (renameInput.text.trim() !== "") {
-                            xmppBackend.renameContact(sidebarRoot.contactJid, renameInput.text.trim())
-                            sidebarRoot.contactName = renameInput.text.trim()
-                            renameDialog.close()
+                            xmppBackend.renameContact(sidebarRoot.contactJid, renameInput.text.trim());
+                            sidebarRoot.contactName = renameInput.text.trim();
+                            renameDialog.close();
                         }
                     }
                 }
@@ -562,12 +697,20 @@ Rectangle {
                 }
 
                 Button {
-                    contentItem: Text { text: "Delete"; color: "white"; font.bold: true; horizontalAlignment: Text.AlignHCenter }
-                    background: Rectangle { color: "#ef4444"; radius: 6 }
+                    contentItem: Text {
+                        text: "Delete"
+                        color: "white"
+                        font.bold: true
+                        horizontalAlignment: Text.AlignHCenter
+                    }
+                    background: Rectangle {
+                        color: "#ef4444"
+                        radius: 6
+                    }
                     onClicked: {
-                        deleteConfirmDialog.close()
-                        sidebarRoot.closeRequested()
-                        xmppBackend.deleteContact(sidebarRoot.contactJid)
+                        deleteConfirmDialog.close();
+                        sidebarRoot.closeRequested();
+                        xmppBackend.deleteContact(sidebarRoot.contactJid);
                     }
                 }
             }
@@ -617,13 +760,21 @@ Rectangle {
                 }
 
                 Button {
-                    contentItem: Text { text: "Clean Keys"; color: "white"; font.bold: true; horizontalAlignment: Text.AlignHCenter }
-                    background: Rectangle { color: "#ef4444"; radius: 6 }
+                    contentItem: Text {
+                        text: "Clean Keys"
+                        color: "white"
+                        font.bold: true
+                        horizontalAlignment: Text.AlignHCenter
+                    }
+                    background: Rectangle {
+                        color: "#ef4444"
+                        radius: 6
+                    }
                     onClicked: {
-                        confirmCleanKeysDialog.close()
-                        var ok = xmppBackend.cleanOmemoKeys()
+                        confirmCleanKeysDialog.close();
+                        var ok = xmppBackend.cleanOmemoKeys();
                         if (ok) {
-                            sidebarRoot.refreshContactData()
+                            sidebarRoot.refreshContactData();
                         }
                     }
                 }

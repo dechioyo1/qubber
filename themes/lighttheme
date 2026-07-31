@@ -19,8 +19,8 @@ sidebarBgOver: #e2e8f0
 sidebarBgActive: #2563eb
 msgInBg: #f1f5f9
 msgInText: #0f172a
-msgOutBg: #2563eb
-msgOutText: #ffffff
+msgOutBg: #e0e7ff
+msgOutText: #1e1b4b
 colDanger: #ef4444
 colSuccess: #10b981
 colWarning: #f59e0b

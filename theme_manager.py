@@ -213,11 +213,11 @@ class ThemeManager(QObject):
 
     @Property(str, notify=themeChanged)
     def msgOutBg(self):
-        return self.get_color('msgOutBg', '#2563eb')
+        return self.get_color('msgOutBg', '#e0e7ff')
 
     @Property(str, notify=themeChanged)
     def msgOutText(self):
-        return self.get_color('msgOutText', '#ffffff')
+        return self.get_color('msgOutText', '#1e1b4b')
 
     @Property(str, notify=themeChanged)
     def colDanger(self):
