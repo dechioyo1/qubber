@@ -1,0 +1,26 @@
+# Qubber Light Theme (Default)
+colBg: #ffffff
+colCard: #f8fafc
+colInputBg: #f1f5f9
+colText: #0f172a
+colMuted: #64748b
+colBorder: #e2e8f0
+colPrimary: #2563eb
+colPrimaryDark: #1d4ed8
+colAccent: #7c3aed
+colHover: #f1f5f9
+colActive: #e2e8f0
+colActiveFg: #0f172a
+topBarBg: #f8fafc
+topBarFg: #0f172a
+sidebarBg: #f8fafc
+sidebarHeaderBg: #f1f5f9
+sidebarBgOver: #e2e8f0
+sidebarBgActive: #2563eb
+msgInBg: #f1f5f9
+msgInText: #0f172a
+msgOutBg: #2563eb
+msgOutText: #ffffff
+colDanger: #ef4444
+colSuccess: #10b981
+colWarning: #f59e0b
