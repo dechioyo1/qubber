@@ -172,25 +172,24 @@ ItemDelegate {
                     Layout.fillWidth: true
                 }
                 
-                Image {
+                TintedIcon {
                     visible: (model.isTyping === undefined || !model.isTyping) && model.lastMessageIsMe !== undefined && model.lastMessageIsMe && model.lastMessage && model.lastMessage !== ""
                     width: 14
                     height: 14
                     source: {
                         var status = model.lastMessageStatus;
-                        if (delegate.isActive) {
-                            if (status === "sending") return "icons/hourglass_white.svg";
-                            if (status === "sent") return "icons/check_white.svg";
-                            if (status === "read") return "icons/done_all_white.svg";
-                            if (status === "error") return "icons/error_red.svg";
-                            return "icons/check_white.svg";
-                        } else {
-                            if (status === "sending") return "icons/hourglass_muted.svg";
-                            if (status === "sent") return "icons/check_muted.svg";
-                            if (status === "read") return "icons/done_all_primary.svg";
-                            if (status === "error") return "icons/error_red.svg";
-                            return "icons/check_muted.svg";
-                        }
+                        if (status === "sending") return "icons/hourglass.svg";
+                        if (status === "sent") return "icons/check.svg";
+                        if (status === "read") return "icons/done_all.svg";
+                        if (status === "error") return "icons/error.svg";
+                        return "icons/check.svg";
+                    }
+                    color: {
+                        var status = model.lastMessageStatus;
+                        if (status === "error") return "#ef4444";
+                        if (delegate.isActive) return "#ffffff";
+                        if (status === "read") return window.colPrimary;
+                        return window.colMuted;
                     }
                     sourceSize: Qt.size(14, 14)
                 }

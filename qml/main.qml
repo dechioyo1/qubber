@@ -944,10 +944,11 @@ ApplicationWindow {
             
             RowLayout {
                 spacing: 10
-                Image {
+                TintedIcon {
                     width: 24
                     height: 24
-                    source: "icons/lock_primary.svg"
+                    source: "icons/lock.svg"
+                    color: window.colPrimary
                     sourceSize: Qt.size(24, 24)
                 }
                 Text {

@@ -16,6 +16,7 @@ Rectangle {
     property string contactStatus: "offline"
     property string contactLastSeen: ""
     property string contactStatusMessage: ""
+    property bool isBlocked: false
 
     signal closeRequested
 
@@ -153,10 +154,11 @@ Rectangle {
 
                         contentItem: RowLayout {
                             spacing: 8
-                            Image {
+                            TintedIcon {
                                 width: 18
                                 height: 18
-                                source: "icons/chat_muted.svg"
+                                source: "icons/chat.svg"
+                                color: "white"
                                 sourceSize: Qt.size(18, 18)
                             }
                             Text {
@@ -184,10 +186,11 @@ Rectangle {
 
                         contentItem: RowLayout {
                             spacing: 8
-                            Image {
+                            TintedIcon {
                                 width: 18
                                 height: 18
-                                source: "icons/location_on_muted.svg"
+                                source: "icons/call.svg"
+                                color: window.colText
                                 sourceSize: Qt.size(18, 18)
                             }
                             Text {
@@ -233,10 +236,11 @@ Rectangle {
                         Layout.fillWidth: true
                         spacing: 12
 
-                        Image {
+                        TintedIcon {
                             width: 20
                             height: 20
-                            source: "icons/chat_muted.svg"
+                            source: "icons/chat.svg"
+                            color: window.colMuted
                             sourceSize: Qt.size(20, 20)
                         }
 
@@ -354,10 +358,11 @@ Rectangle {
                         contentItem: RowLayout {
                             spacing: 6
                             Layout.alignment: Qt.AlignHCenter
-                            Image {
+                            TintedIcon {
                                 width: 14
                                 height: 14
-                                source: "icons/lock_white.svg"
+                                source: "icons/key_off.svg"
+                                color: "#ef4444"
                                 sourceSize: Qt.size(14, 14)
                             }
                             Text {
@@ -401,11 +406,12 @@ Rectangle {
 
                         contentItem: RowLayout {
                             spacing: 12
-                            Image {
+                            TintedIcon {
                                 Layout.leftMargin: 10
                                 width: 20
                                 height: 20
-                                source: "icons/description_muted.svg"
+                                source: "icons/edit.svg"
+                                color: window.colText
                                 sourceSize: Qt.size(20, 20)
                             }
                             Text {
@@ -437,7 +443,7 @@ Rectangle {
                                 Layout.leftMargin: 10
                                 width: 20
                                 height: 20
-                                source: "icons/back_hand.svg"
+                                source: "icons/front_hand.svg"
                                 color: "#ef4444"
                                 sourceSize: Qt.size(20, 20)
                             }
@@ -549,11 +555,12 @@ Rectangle {
 
                         contentItem: RowLayout {
                             spacing: 12
-                            Image {
+                            TintedIcon {
                                 Layout.leftMargin: 10
                                 width: 20
                                 height: 20
-                                source: "icons/error_red.svg"
+                                source: "icons/error.svg"
+                                color: "#ef4444"
                                 sourceSize: Qt.size(20, 20)
                             }
                             Text {

@@ -143,13 +143,14 @@ Item {
                                 radius: 8
                             }
 
-                            Image {
+                            TintedIcon {
                                 anchors.left: parent.left
                                 anchors.leftMargin: 10
                                 anchors.verticalCenter: parent.verticalCenter
                                 width: 16
                                 height: 16
-                                source: "icons/search_muted.svg"
+                                source: "icons/search.svg"
+                                color: window.colMuted
                                 sourceSize: Qt.size(16, 16)
                                 opacity: 0.6
                             }
@@ -161,11 +162,12 @@ Item {
                             implicitWidth: 32
                             implicitHeight: 32
 
-                            contentItem: Image {
+                            contentItem: TintedIcon {
                                 anchors.centerIn: parent
                                 width: 20
                                 height: 20
-                                source: collapseSidebarBtn.hovered ? "icons/chevron_left_white.svg" : "icons/chevron_left_muted.svg"
+                                source: "icons/chevron_left.svg"
+                                color: collapseSidebarBtn.hovered ? "white" : window.colMuted
                                 sourceSize: Qt.size(20, 20)
                             }
 
@@ -234,11 +236,12 @@ Item {
                     color: "#1e293b"
                     Layout.alignment: Qt.AlignHCenter
 
-                    Image {
+                    TintedIcon {
                         anchors.centerIn: parent
                         width: 36
                         height: 36
-                        source: "icons/chat_muted.svg"
+                        source: "icons/chat.svg"
+                        color: window.colMuted
                         sourceSize: Qt.size(36, 36)
                     }
                 }
@@ -304,11 +307,12 @@ Item {
                                 implicitWidth: 32
                                 implicitHeight: 32
 
-                                contentItem: Image {
+                                contentItem: TintedIcon {
                                     anchors.centerIn: parent
                                     width: 20
                                     height: 20
-                                    source: expandSidebarBtn.hovered ? "icons/menu_white.svg" : "icons/menu_muted.svg"
+                                    source: "icons/menu.svg"
+                                    color: expandSidebarBtn.hovered ? "white" : window.colMuted
                                     sourceSize: Qt.size(20, 20)
                                 }
 
@@ -929,11 +933,12 @@ Item {
                         anchors.centerIn: parent
                         spacing: 12
 
-                        Image {
+                        TintedIcon {
                             Layout.alignment: Qt.AlignHCenter
                             width: 48
                             height: 48
-                            source: "icons/attach_file_white.svg"
+                            source: "icons/attach_file.svg"
+                            color: "white"
                             sourceSize: Qt.size(48, 48)
                         }
 
@@ -1052,10 +1057,11 @@ Item {
                         anchors.margins: 12
                         spacing: 12
 
-                        Image {
+                        TintedIcon {
                             width: 36
                             height: 36
-                            source: "icons/attach_file_white.svg"
+                            source: "icons/attach_file.svg"
+                            color: "white"
                             sourceSize: Qt.size(36, 36)
                         }
 
@@ -1260,11 +1266,12 @@ Item {
                         implicitWidth: 32
                         implicitHeight: 32
 
-                        contentItem: Image {
+                        contentItem: TintedIcon {
                             anchors.centerIn: parent
                             width: 18
                             height: 18
-                            source: "icons/download_white.svg"
+                            source: "icons/download.svg"
+                            color: "white"
                             sourceSize: Qt.size(18, 18)
                         }
 
