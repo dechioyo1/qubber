@@ -148,30 +148,28 @@ Item {
 
                 TintedIcon {
                     visible: (model.isEdited !== undefined && model.isEdited)
-                    width: 10
-                    height: 10
+                    width: 12
+                    height: 12
                     source: "icons/edit.svg"
                     color: model.isMe ? window.msgOutText : window.colMuted
-                    opacity: 0.75
-                    sourceSize: Qt.size(10, 10)
+                    opacity: 0.85
                     Layout.alignment: Qt.AlignVCenter
                 }
 
                 TintedIcon {
                     visible: (model.isEncrypted !== undefined && model.isEncrypted)
-                    width: 8
-                    height: 8
+                    width: 12
+                    height: 12
                     source: "icons/lock.svg"
                     color: model.isMe ? window.msgOutText : window.colMuted
-                    opacity: 0.7
-                    sourceSize: Qt.size(8, 8)
+                    opacity: 0.85
                     Layout.alignment: Qt.AlignVCenter
                 }
 
                 TintedIcon {
                     visible: model.isMe
-                    width: 10
-                    height: 10
+                    width: 15
+                    height: 15
                     source: {
                         var status = model.status;
                         if (status === "sending")
@@ -190,8 +188,7 @@ Item {
                             return window.colMuted;
                         return model.isMe ? window.msgOutText : window.colPrimary;
                     }
-                    opacity: 0.8
-                    sourceSize: Qt.size(15, 15)
+                    opacity: 0.9
                     Layout.alignment: Qt.AlignVCenter
                 }
             }
@@ -234,23 +231,21 @@ Item {
 
                 TintedIcon {
                     visible: (model.isEdited !== undefined && model.isEdited)
-                    width: 10
-                    height: 10
+                    width: 12
+                    height: 12
                     source: "icons/edit.svg"
                     color: model.isMe ? window.msgOutText : window.colMuted
-                    opacity: 0.75
-                    sourceSize: Qt.size(10, 10)
+                    opacity: 0.85
                     Layout.alignment: Qt.AlignVCenter
                 }
 
                 TintedIcon {
                     visible: (model.isEncrypted !== undefined && model.isEncrypted)
-                    width: 8
-                    height: 8
+                    width: 12
+                    height: 12
                     source: "icons/lock.svg"
                     color: model.isMe ? window.msgOutText : window.colMuted
-                    opacity: 0.7
-                    sourceSize: Qt.size(8, 8)
+                    opacity: 0.85
                     Layout.alignment: Qt.AlignVCenter
                 }
 
@@ -276,8 +271,7 @@ Item {
                             return window.colMuted;
                         return model.isMe ? window.msgOutText : window.colPrimary;
                     }
-                    opacity: 0.8
-                    sourceSize: Qt.size(15, 15)
+                    opacity: 0.9
                     Layout.alignment: Qt.AlignVCenter
                 }
             }
@@ -360,30 +354,28 @@ Item {
 
                 TintedIcon {
                     visible: (model.isEdited !== undefined && model.isEdited)
-                    width: 9
-                    height: 9
+                    width: 12
+                    height: 12
                     source: "icons/edit.svg"
                     color: "#ffffff"
                     opacity: 0.9
-                    sourceSize: Qt.size(9, 9)
                     Layout.alignment: Qt.AlignVCenter
                 }
 
                 TintedIcon {
                     visible: (model.isEncrypted !== undefined && model.isEncrypted)
-                    width: 8
-                    height: 8
+                    width: 12
+                    height: 12
                     source: "icons/lock.svg"
                     color: "#ffffff"
                     opacity: 0.9
-                    sourceSize: Qt.size(8, 8)
                     Layout.alignment: Qt.AlignVCenter
                 }
 
                 TintedIcon {
                     visible: model.isMe
-                    width: 13
-                    height: 13
+                    width: 15
+                    height: 15
                     source: {
                         var status = model.status;
                         if (status === "sending")
@@ -401,7 +393,6 @@ Item {
                         return "#ffffff";
                     }
                     opacity: 0.95
-                    sourceSize: Qt.size(13, 13)
                     Layout.alignment: Qt.AlignVCenter
                 }
             }
