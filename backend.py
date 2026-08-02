@@ -452,6 +452,12 @@ class XmppBackend(QObject):
         # Configure XEP-0092 Software Version
         self.client.plugin['xep_0092'].software_name = 'Qubber'
         self.client.plugin['xep_0092'].version = '1.0.0'
+
+        # Advertise XEP-0393 Message Formatting feature
+        try:
+            self.client.plugin['xep_0030'].add_feature('urn:xmpp:styling:0')
+        except Exception as e:
+            logging.debug(f"Failed to add xep_0393 feature: {e}")
         self.client.plugin['xep_0092'].os = f"{platform.system()} {platform.release()}"
 
         # Configure XEP-0232 Software Information Data Form

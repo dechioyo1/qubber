@@ -122,7 +122,8 @@ Item {
 
             Text {
                 id: messageTextSingle
-                text: model.body
+                text: (model.formattedBody !== undefined && model.formattedBody !== "") ? model.formattedBody : model.body
+                textFormat: Text.RichText
                 color: model.isMe ? window.msgOutText : window.msgInText
                 font.pixelSize: 14
                 Layout.alignment: Qt.AlignVCenter
@@ -211,7 +212,8 @@ Item {
             Text {
                 id: messageTextMulti
                 Layout.fillWidth: true
-                text: model.body
+                text: (model.formattedBody !== undefined && model.formattedBody !== "") ? model.formattedBody : model.body
+                textFormat: Text.RichText
                 color: model.isMe ? window.msgOutText : window.msgInText
                 font.pixelSize: 14
                 wrapMode: Text.Wrap

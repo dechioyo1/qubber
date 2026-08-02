@@ -1,4 +1,5 @@
 from PySide6.QtCore import QAbstractListModel, QModelIndex, Qt, Slot
+from xep0393_formatter import format_xep0393
 
 class ChatModel(QAbstractListModel):
     SenderRole = Qt.ItemDataRole.UserRole + 1
@@ -12,6 +13,7 @@ class ChatModel(QAbstractListModel):
     ShowDateHeaderRole = Qt.ItemDataRole.UserRole + 8
     IsEncryptedRole = Qt.ItemDataRole.UserRole + 9
     IsEditedRole = Qt.ItemDataRole.UserRole + 10
+    FormattedBodyRole = Qt.ItemDataRole.UserRole + 11
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -28,7 +30,8 @@ class ChatModel(QAbstractListModel):
             self.DateHeaderRole: b"dateHeader",
             self.ShowDateHeaderRole: b"showDateHeader",
             self.IsEncryptedRole: b"isEncrypted",
-            self.IsEditedRole: b"isEdited"
+            self.IsEditedRole: b"isEdited",
+            self.FormattedBodyRole: b"formattedBody"
         }
 
     def rowCount(self, parent=QModelIndex()):
@@ -61,6 +64,8 @@ class ChatModel(QAbstractListModel):
             return msg.get('isEncrypted', False)
         elif role == self.IsEditedRole:
             return msg.get('isEdited', False)
+        elif role == self.FormattedBodyRole:
+            return format_xep0393(msg['body'])
         return None
 
     def set_messages(self, messages):
