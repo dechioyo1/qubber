@@ -111,7 +111,7 @@ Item {
                         
                         Text {
                             id: statusLabel
-                            text: xmppBackend.connectionStatus
+                            text: xmppBackend ? xmppBackend.connectionStatus : ""
                             color: window.colText
                             font.pixelSize: 13
                             Layout.fillWidth: true
@@ -322,7 +322,7 @@ Item {
                     implicitHeight: 46
                     
                     contentItem: Text {
-                        text: xmppBackend.connectionStatus === "Connecting..." ? "Connecting..." : "Connect"
+                        text: (xmppBackend && xmppBackend.connectionStatus === "Connecting...") ? "Connecting..." : "Connect"
                         color: "white"
                         font.pixelSize: 14
                         font.bold: true
@@ -338,7 +338,7 @@ Item {
                         opacity: loginButton.enabled ? 1.0 : 0.6
                     }
                     
-                    enabled: jidInput.text.trim() !== "" && passwordInput.text.trim() !== "" && xmppBackend.connectionStatus !== "Connecting..."
+                    enabled: jidInput.text.trim() !== "" && passwordInput.text.trim() !== "" && (xmppBackend ? xmppBackend.connectionStatus !== "Connecting..." : true)
                     
                     onClicked: {
                         xmppBackend.login(

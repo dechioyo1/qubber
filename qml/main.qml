@@ -20,25 +20,25 @@ ApplicationWindow {
     readonly property bool isMenuBarActive: contactsMenu.opened || settingsMenu.opened || accountMenu.opened
 
     // Theme palette bound dynamically to themeManager
-    readonly property color colPrimary: themeManager.colPrimary
-    readonly property color colPrimaryDark: themeManager.colPrimaryDark
-    readonly property color colAccent: themeManager.colAccent
-    readonly property color colBg: themeManager.colBg
-    readonly property color colCard: themeManager.colCard
-    readonly property color colText: themeManager.colText
-    readonly property color colMuted: themeManager.colMuted
-    readonly property color colBorder: themeManager.colBorder
-    readonly property color colInputBg: themeManager.colInputBg
-    readonly property color topBarBg: themeManager.topBarBg
-    readonly property color topBarFg: themeManager.topBarFg
-    readonly property color sidebarBg: themeManager.sidebarBg
-    readonly property color sidebarHeaderBg: themeManager.sidebarHeaderBg
-    readonly property color sidebarBgOver: themeManager.sidebarBgOver
-    readonly property color sidebarBgActive: themeManager.sidebarBgActive
-    readonly property color msgInBg: themeManager.msgInBg
-    readonly property color msgInText: themeManager.msgInText
-    readonly property color msgOutBg: themeManager.msgOutBg
-    readonly property color msgOutText: themeManager.msgOutText
+    readonly property color colPrimary: themeManager ? themeManager.colPrimary : "#2563eb"
+    readonly property color colPrimaryDark: themeManager ? themeManager.colPrimaryDark : "#1d4ed8"
+    readonly property color colAccent: themeManager ? themeManager.colAccent : "#7c3aed"
+    readonly property color colBg: themeManager ? themeManager.colBg : "#ffffff"
+    readonly property color colCard: themeManager ? themeManager.colCard : "#f8fafc"
+    readonly property color colText: themeManager ? themeManager.colText : "#0f172a"
+    readonly property color colMuted: themeManager ? themeManager.colMuted : "#64748b"
+    readonly property color colBorder: themeManager ? themeManager.colBorder : "#e2e8f0"
+    readonly property color colInputBg: themeManager ? themeManager.colInputBg : "#f1f5f9"
+    readonly property color topBarBg: themeManager ? themeManager.topBarBg : "#f8fafc"
+    readonly property color topBarFg: themeManager ? themeManager.topBarFg : "#0f172a"
+    readonly property color sidebarBg: themeManager ? themeManager.sidebarBg : "#f8fafc"
+    readonly property color sidebarHeaderBg: themeManager ? themeManager.sidebarHeaderBg : "#f1f5f9"
+    readonly property color sidebarBgOver: themeManager ? themeManager.sidebarBgOver : "#e2e8f0"
+    readonly property color sidebarBgActive: themeManager ? themeManager.sidebarBgActive : "#2563eb"
+    readonly property color msgInBg: themeManager ? themeManager.msgInBg : "#f1f5f9"
+    readonly property color msgInText: themeManager ? themeManager.msgInText : "#0f172a"
+    readonly property color msgOutBg: themeManager ? themeManager.msgOutBg : "#2563eb"
+    readonly property color msgOutText: themeManager ? themeManager.msgOutText : "#ffffff"
 
     // Presence colors
     readonly property color colOnline: "#10b981"
@@ -130,7 +130,7 @@ ApplicationWindow {
                                 radius: 4
                                 Layout.alignment: Qt.AlignVCenter
                                 color: {
-                                    var st = xmppBackend.myStatus;
+                                    var st = xmppBackend ? xmppBackend.myStatus : "";
                                     if (st === "away") return window.colAway;
                                     if (st === "dnd") return window.colDnd;
                                     return window.colOnline;
@@ -139,11 +139,11 @@ ApplicationWindow {
                             
                             Text {
                                 text: {
-                                    var msg = xmppBackend.myStatusMessage ? xmppBackend.myStatusMessage.trim() : "";
+                                    var msg = (xmppBackend && xmppBackend.myStatusMessage) ? xmppBackend.myStatusMessage.trim() : "";
                                     if (msg !== "") {
                                         return msg.length > 10 ? msg.substring(0, 10) + "..." : msg;
                                     }
-                                    var st = xmppBackend.myStatus;
+                                    var st = xmppBackend ? xmppBackend.myStatus : "";
                                     if (st === "away") return "Away";
                                     if (st === "dnd") return "Busy";
                                     return "Online";
@@ -418,7 +418,7 @@ ApplicationWindow {
                         property bool preventOpen: false
                         
                         contentItem: Text {
-                            text: xmppBackend.myJid !== "" ? xmppBackend.myJid : "Account"
+                            text: (xmppBackend && xmppBackend.myJid !== "") ? xmppBackend.myJid : "Account"
                             color: accountBtn.hovered ? window.colPrimary : window.colText
                             font.pixelSize: 13
                             verticalAlignment: Text.AlignVCenter
@@ -764,7 +764,7 @@ ApplicationWindow {
         }
         
         contentItem: ColumnLayout {
-            spacing: 16
+            spacing: 14
             width: 320
             
             Text {
@@ -776,28 +776,74 @@ ApplicationWindow {
             }
             
             Text {
-                text: "Theme configuration file:"
+                text: "Select Theme Preset:"
                 color: window.colMuted
                 font.pixelSize: 12
             }
             
+            RowLayout {
+                spacing: 10
+                Layout.fillWidth: true
+                
+                Button {
+                    id: lightThemeBtn
+                    Layout.fillWidth: true
+                    implicitHeight: 38
+                    
+                    contentItem: Text {
+                        text: "☀️ Light"
+                        color: (themeManager && themeManager.currentTheme === "light") ? "white" : window.colText
+                        font.bold: true
+                        font.pixelSize: 13
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+                    
+                    background: Rectangle {
+                        color: (themeManager && themeManager.currentTheme === "light") 
+                            ? window.colPrimary 
+                            : (lightThemeBtn.hovered ? "#33415530" : window.colInputBg)
+                        border.color: window.colBorder
+                        radius: 6
+                    }
+                    
+                    onClicked: {
+                        if (themeManager) themeManager.selectTheme("light")
+                    }
+                }
+
+                Button {
+                    id: darkThemeBtn
+                    Layout.fillWidth: true
+                    implicitHeight: 38
+                    
+                    contentItem: Text {
+                        text: "🌙 Atom One Dark"
+                        color: (themeManager && themeManager.currentTheme === "dark") ? "white" : window.colText
+                        font.bold: true
+                        font.pixelSize: 13
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+                    
+                    background: Rectangle {
+                        color: (themeManager && themeManager.currentTheme === "dark") 
+                            ? window.colPrimary 
+                            : (darkThemeBtn.hovered ? "#33415530" : window.colInputBg)
+                        border.color: window.colBorder
+                        radius: 6
+                    }
+                    
+                    onClicked: {
+                        if (themeManager) themeManager.selectTheme("dark")
+                    }
+                }
+            }
+
             Rectangle {
                 Layout.fillWidth: true
-                height: 36
-                color: window.colInputBg
-                border.color: window.colBorder
-                radius: 6
-                
-                Text {
-                    anchors.fill: parent
-                    anchors.leftMargin: 10
-                    anchors.rightMargin: 10
-                    text: "~/.config/Qubber/theme"
-                    color: window.colText
-                    font.pixelSize: 12
-                    verticalAlignment: Text.AlignVCenter
-                    elide: Text.ElideMiddle
-                }
+                height: 1
+                color: window.colBorder
             }
             
             RowLayout {
@@ -811,15 +857,15 @@ ApplicationWindow {
                     
                     contentItem: Text {
                         text: "Load Theme File..."
-                        color: "white"
-                        font.bold: true
+                        color: window.colText
                         font.pixelSize: 13
                         horizontalAlignment: Text.AlignHCenter
                         verticalAlignment: Text.AlignVCenter
                     }
                     
                     background: Rectangle {
-                        color: loadThemeFileBtn.down ? window.colPrimaryDark : (loadThemeFileBtn.hovered ? window.colAccent : window.colPrimary)
+                        color: loadThemeFileBtn.hovered ? "#33415540" : "transparent"
+                        border.color: window.colBorder
                         radius: 6
                     }
                     
@@ -834,7 +880,7 @@ ApplicationWindow {
                     implicitHeight: 36
                     
                     contentItem: Text {
-                        text: "Reload Theme"
+                        text: "Reload Current"
                         color: window.colText
                         font.pixelSize: 13
                         horizontalAlignment: Text.AlignHCenter
@@ -848,7 +894,7 @@ ApplicationWindow {
                     }
                     
                     onClicked: {
-                        themeManager.reloadTheme()
+                        if (themeManager) themeManager.reloadTheme()
                     }
                 }
             }

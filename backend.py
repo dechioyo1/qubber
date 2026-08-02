@@ -437,6 +437,14 @@ class XmppBackend(QObject):
         self.client.register_plugin('xep_0163') # PEP
         self.client.register_plugin('xep_0280') # Message Carbons
         self.client.register_plugin('xep_0334') # Message Processing Hints
+        self.client.register_plugin('xep_0199') # XMPP Ping
+        self.client.register_plugin('xep_0308') # Last Message Correction
+        
+        # Configure XEP-0199 Keepalive pinging (60s interval, 15s timeout)
+        try:
+            self.client.plugin['xep_0199'].enable_keepalive(interval=60, timeout=15)
+        except Exception as e:
+            logging.debug(f"Failed to enable xep_0199 keepalive: {e}")
 
         # Configure XEP-0115 Entity Capabilities node
         self.client.plugin['xep_0115'].node = 'https://qubber.im'
@@ -444,6 +452,12 @@ class XmppBackend(QObject):
         # Configure XEP-0092 Software Version
         self.client.plugin['xep_0092'].software_name = 'Qubber'
         self.client.plugin['xep_0092'].version = '1.0.0'
+
+        # Advertise XEP-0393 Message Formatting feature
+        try:
+            self.client.plugin['xep_0030'].add_feature('urn:xmpp:styling:0')
+        except Exception as e:
+            logging.debug(f"Failed to add xep_0393 feature: {e}")
         self.client.plugin['xep_0092'].os = f"{platform.system()} {platform.release()}"
 
         # Configure XEP-0232 Software Information Data Form
@@ -636,6 +650,81 @@ class XmppBackend(QObject):
                 logging.error(f"Failed to update status in DB: {e}")
                 
         self.update_chats_list_model()
+
+    @Slot(int, str)
+    def editMessage(self, msg_id, new_body):
+        if not self._active_chat_jid or not new_body.strip() or not msg_id:
+            return
+
+        mto = self._active_chat_jid
+        new_body = new_body.strip()
+        logging.info(f"Editing message {msg_id} to {mto}: {new_body}")
+
+        stanza_id = None
+        try:
+            cursor = self.db_conn.cursor()
+            cursor.execute("SELECT stanza_id FROM messages WHERE id = ?", (msg_id,))
+            row = cursor.fetchone()
+            if row and row[0]:
+                stanza_id = row[0]
+
+            cursor.execute("UPDATE messages SET body = ?, is_edited = 1 WHERE id = ?", (new_body, msg_id))
+            self.db_conn.commit()
+        except Exception as e:
+            logging.error(f"Failed to update edited message in DB: {e}")
+
+        # Update active chat model
+        self.chat_model.update_message_body(msg_id, new_body, is_edited=True)
+
+        # Update in-memory chat cache if loaded
+        if mto in self._chats:
+            for m in self._chats[mto]:
+                if m.get('msgId') == msg_id:
+                    m['body'] = new_body
+                    m['isEdited'] = True
+                    break
+
+        self.update_chats_list_model()
+
+        # Send XEP-0308 edit stanza asynchronously
+        try:
+            asyncio.create_task(self._send_edit_message_async(mto, new_body, msg_id, stanza_id))
+        except RuntimeError:
+            pass
+
+    async def _send_edit_message_async(self, mto, new_body, msg_id, stanza_id=None):
+        if not self.client or not self.client.is_connected():
+            return
+        target_replace_id = str(stanza_id) if stanza_id else str(msg_id)
+        try:
+            msg = self.client.make_message(mto=mto, mbody=new_body, mtype='chat')
+            msg['id'] = f"edit_{msg_id}_{int(datetime.now().timestamp())}"
+            msg['request_receipt'] = True
+            msg['replace']['id'] = target_replace_id
+
+            if self.omemo_mgr.is_encryption_enabled(mto):
+                if self.client and 'xep_0384' in self.client.plugin:
+                    try:
+                        recipient_jid = slixmpp.JID(mto)
+                        encrypted_msg, errors = await self.client.plugin['xep_0384'].encrypt_message(msg, recipient_jid)
+                        if encrypted_msg:
+                            msg = encrypted_msg
+                            logging.info(f"Successfully encrypted OMEMO edit message via xep_0384 for {mto}")
+                        if errors:
+                            logging.warning(f"xep_0384 edit encryption info: {errors}")
+                    except Exception as e:
+                        logging.error(f"xep_0384 edit encryption exception for {mto}: {e}", exc_info=True)
+
+            # Guarantee <replace> element is present on final outgoing XML stanza
+            xml_root = msg.xml if hasattr(msg, 'xml') else msg
+            if xml_root.find('{urn:xmpp:message-correct:0}replace') is None:
+                rep_elem = ET.Element('{urn:xmpp:message-correct:0}replace', id=target_replace_id)
+                msg.append(rep_elem)
+
+            msg.send()
+            logging.info(f"Sent XEP-0308 message correction stanza replacing {target_replace_id} to {mto}")
+        except Exception as e:
+            logging.error(f"Failed to send edit message stanza: {e}")
 
     @Slot(str)
     def uploadFile(self, file_url):
@@ -1273,10 +1362,62 @@ class XmppBackend(QObject):
             created_at_str = now_dt.strftime("%Y-%m-%d %H:%M:%S")
             date_hdr = format_date_header(now_dt)
             
-            # Save to database (incoming messages are default to 'read' or 'sent', let's say 'read')
-            my_bare_jid = self.client.boundjid.bare
+            my_bare_jid = self.client.boundjid.bare if (self.client and self.client.boundjid) else self._my_jid
             is_encrypted_flag = locals().get('is_omemo_decrypted', False)
-            msg_id = self.save_message_to_db(my_bare_jid, sender, sender, body, timestamp, False, status='read', created_at=created_at_str, is_encrypted=is_encrypted_flag)
+            incoming_stanza_id = msg['id'] if 'id' in msg and msg['id'] else None
+
+            # Check for XEP-0308 Last Message Correction <replace> element
+            replace_id = None
+            xml_elem = msg.xml if hasattr(msg, 'xml') else None
+            if xml_elem is not None:
+                for child in xml_elem.iter():
+                    if child.tag == '{urn:xmpp:message-correct:0}replace' or child.tag.endswith('}replace'):
+                        replace_id = child.get('id')
+                        break
+
+            if replace_id:
+                logging.info(f"Received XEP-0308 message correction from {sender} replacing ID {replace_id}: {body}")
+                target_db_id = None
+                try:
+                    cursor = self.db_conn.cursor()
+                    cursor.execute("""
+                        SELECT id FROM messages 
+                        WHERE account_jid = ? AND peer_jid = ? AND (stanza_id = ? OR id = ?)
+                        ORDER BY id DESC LIMIT 1
+                    """, (my_bare_jid, sender, replace_id, replace_id))
+                    row = cursor.fetchone()
+                    if row:
+                        target_db_id = row[0]
+                    else:
+                        cursor.execute("""
+                            SELECT id FROM messages 
+                            WHERE account_jid = ? AND peer_jid = ? AND is_me = 0
+                            ORDER BY id DESC LIMIT 1
+                        """, (my_bare_jid, sender))
+                        fallback_row = cursor.fetchone()
+                        if fallback_row:
+                            target_db_id = fallback_row[0]
+
+                    if target_db_id:
+                        cursor.execute("UPDATE messages SET body = ? WHERE id = ?", (body, target_db_id))
+                        self.db_conn.commit()
+
+                        if self._active_chat_jid == sender:
+                            self.chat_model.update_message_body(target_db_id, body)
+
+                        if sender in self._chats:
+                            for m in self._chats[sender]:
+                                if m.get('msgId') == target_db_id:
+                                    m['body'] = body
+                                    break
+
+                        self.update_chats_list_model()
+                        return
+                except Exception as e:
+                    logging.error(f"Error handling incoming message correction: {e}")
+
+            # Standard new message insertion
+            msg_id = self.save_message_to_db(my_bare_jid, sender, sender, body, timestamp, False, status='read', created_at=created_at_str, is_encrypted=is_encrypted_flag, stanza_id=incoming_stanza_id)
             
             msg_entry = {
                 'sender': sender,
@@ -1626,6 +1767,10 @@ class XmppBackend(QObject):
                 cursor.execute("ALTER TABLE messages ADD COLUMN status TEXT DEFAULT 'sent'")
             if 'is_encrypted' not in columns:
                 cursor.execute("ALTER TABLE messages ADD COLUMN is_encrypted INTEGER DEFAULT 0")
+            if 'stanza_id' not in columns:
+                cursor.execute("ALTER TABLE messages ADD COLUMN stanza_id TEXT")
+            if 'is_edited' not in columns:
+                cursor.execute("ALTER TABLE messages ADD COLUMN is_edited INTEGER DEFAULT 0")
 
             cursor.execute("PRAGMA table_info(contacts)")
             contact_cols = [info[1] for info in cursor.fetchall()]
@@ -1643,15 +1788,28 @@ class XmppBackend(QObject):
         except Exception as e:
             logging.error(f"Failed to initialize database: {e}", exc_info=True)
 
-    def save_message_to_db(self, account_jid, peer_jid, sender, body, timestamp, is_me, status='sent', created_at=None, is_encrypted=False):
+    def _load_blocked_contacts_from_db(self):
+        self._blocked_jids.clear()
+        try:
+            cursor = self.db_conn.cursor()
+            cursor.execute("SELECT jid FROM blocked_contacts")
+            rows = cursor.fetchall()
+            for row in rows:
+                if row[0]:
+                    self._blocked_jids.add(row[0])
+            logging.info(f"Loaded {len(self._blocked_jids)} blocked contacts from local DB")
+        except Exception as e:
+            logging.error(f"Error loading blocked contacts from DB: {e}")
+
+    def save_message_to_db(self, account_jid, peer_jid, sender, body, timestamp, is_me, status='sent', created_at=None, is_encrypted=False, stanza_id=None, is_edited=False):
         try:
             if not created_at:
                 created_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             cursor = self.db_conn.cursor()
             cursor.execute("""
-                INSERT INTO messages (account_jid, peer_jid, sender, body, timestamp, is_me, status, created_at, is_encrypted)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (account_jid, peer_jid, sender, body, timestamp, 1 if is_me else 0, status, created_at, 1 if is_encrypted else 0))
+                INSERT INTO messages (account_jid, peer_jid, sender, body, timestamp, is_me, status, created_at, is_encrypted, stanza_id, is_edited)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (account_jid, peer_jid, sender, body, timestamp, 1 if is_me else 0, status, created_at, 1 if is_encrypted else 0, stanza_id, 1 if is_edited else 0))
             self.db_conn.commit()
             return cursor.lastrowid
         except Exception as e:
@@ -1662,7 +1820,7 @@ class XmppBackend(QObject):
         try:
             cursor = self.db_conn.cursor()
             cursor.execute("""
-                SELECT id, sender, body, timestamp, is_me, status, created_at, is_encrypted 
+                SELECT id, sender, body, timestamp, is_me, status, created_at, is_encrypted, is_edited 
                 FROM messages 
                 WHERE account_jid = ? AND peer_jid = ? 
                 ORDER BY created_at ASC, id ASC
@@ -1672,6 +1830,7 @@ class XmppBackend(QObject):
             for row in rows:
                 created_at_val = row[6]
                 is_enc = bool(row[7]) if len(row) > 7 and row[7] is not None else False
+                is_ed = bool(row[8]) if len(row) > 8 and row[8] is not None else False
                 messages.append({
                     'msgId': row[0],
                     'sender': row[1],
@@ -1681,7 +1840,8 @@ class XmppBackend(QObject):
                     'status': row[5] or 'sent',
                     'createdAt': created_at_val,
                     'dateHeader': format_date_header(created_at_val),
-                    'isEncrypted': is_enc
+                    'isEncrypted': is_enc,
+                    'isEdited': is_ed
                 })
             return messages
         except Exception as e:

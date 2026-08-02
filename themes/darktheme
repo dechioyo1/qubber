@@ -1,0 +1,26 @@
+# Qubber Dark Theme (Atom One Dark for VS Code)
+colBg: #282c34
+colCard: #21252b
+colInputBg: #1b1d23
+colText: #abb2bf
+colMuted: #5c6370
+colBorder: #181a1f
+colPrimary: #61afef
+colPrimaryDark: #4b96e6
+colAccent: #c678dd
+colHover: #2c313a
+colActive: #3e4451
+colActiveFg: #ffffff
+topBarBg: #21252b
+topBarFg: #abb2bf
+sidebarBg: #21252b
+sidebarHeaderBg: #1e2227
+sidebarBgOver: #2c313a
+sidebarBgActive: #3e4451
+msgInBg: #333842
+msgInText: #abb2bf
+msgOutBg: #2c384e
+msgOutText: #e6edf3
+colDanger: #e06c75
+colSuccess: #98c379
+colWarning: #d19a66
