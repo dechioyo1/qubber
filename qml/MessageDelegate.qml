@@ -146,6 +146,17 @@ Item {
                 }
 
                 TintedIcon {
+                    visible: (model.isEdited !== undefined && model.isEdited)
+                    width: 10
+                    height: 10
+                    source: "icons/edit.svg"
+                    color: model.isMe ? window.msgOutText : window.colMuted
+                    opacity: 0.75
+                    sourceSize: Qt.size(10, 10)
+                    Layout.alignment: Qt.AlignVCenter
+                }
+
+                TintedIcon {
                     visible: (model.isEncrypted !== undefined && model.isEncrypted)
                     width: 8
                     height: 8
@@ -217,6 +228,17 @@ Item {
                     opacity: 0.7
                     font.pixelSize: 11
                     verticalAlignment: Text.AlignVCenter
+                }
+
+                TintedIcon {
+                    visible: (model.isEdited !== undefined && model.isEdited)
+                    width: 10
+                    height: 10
+                    source: "icons/edit.svg"
+                    color: model.isMe ? window.msgOutText : window.colMuted
+                    opacity: 0.75
+                    sourceSize: Qt.size(10, 10)
+                    Layout.alignment: Qt.AlignVCenter
                 }
 
                 TintedIcon {
@@ -335,6 +357,17 @@ Item {
                 }
 
                 TintedIcon {
+                    visible: (model.isEdited !== undefined && model.isEdited)
+                    width: 9
+                    height: 9
+                    source: "icons/edit.svg"
+                    color: "#ffffff"
+                    opacity: 0.9
+                    sourceSize: Qt.size(9, 9)
+                    Layout.alignment: Qt.AlignVCenter
+                }
+
+                TintedIcon {
                     visible: (model.isEncrypted !== undefined && model.isEncrypted)
                     width: 8
                     height: 8
@@ -429,6 +462,36 @@ Item {
             }
             onTriggered: {
                 xmppBackend.saveImageAs(messageContextMenu.messageBody);
+            }
+        }
+
+        MenuItem {
+            id: editItem
+            visible: model.isMe && !root.isImg
+            text: "Edit"
+            implicitWidth: 180
+            implicitHeight: visible ? 36 : 0
+
+            contentItem: Text {
+                text: editItem.text
+                color: editItem.hovered ? "white" : window.colText
+                font.pixelSize: 14
+                leftPadding: 8
+                verticalAlignment: Text.AlignVCenter
+            }
+            background: Rectangle {
+                color: editItem.hovered ? window.colPrimary : "transparent"
+                radius: 6
+            }
+            onTriggered: {
+                var p = root.parent;
+                while (p) {
+                    if (p.objectName === "chatView") {
+                        p.startEditingMessage(messageContextMenu.msgDatabaseId, messageContextMenu.messageBody, messageContextMenu.rowIndex);
+                        break;
+                    }
+                    p = p.parent;
+                }
             }
         }
 

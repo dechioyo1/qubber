@@ -1,4 +1,4 @@
-from PySide6.QtCore import QAbstractListModel, QModelIndex, Qt
+from PySide6.QtCore import QAbstractListModel, QModelIndex, Qt, Slot
 
 class ChatModel(QAbstractListModel):
     SenderRole = Qt.ItemDataRole.UserRole + 1
@@ -11,6 +11,7 @@ class ChatModel(QAbstractListModel):
     DateHeaderRole = Qt.ItemDataRole.UserRole + 7
     ShowDateHeaderRole = Qt.ItemDataRole.UserRole + 8
     IsEncryptedRole = Qt.ItemDataRole.UserRole + 9
+    IsEditedRole = Qt.ItemDataRole.UserRole + 10
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -26,7 +27,8 @@ class ChatModel(QAbstractListModel):
             self.StatusRole: b"status",
             self.DateHeaderRole: b"dateHeader",
             self.ShowDateHeaderRole: b"showDateHeader",
-            self.IsEncryptedRole: b"isEncrypted"
+            self.IsEncryptedRole: b"isEncrypted",
+            self.IsEditedRole: b"isEdited"
         }
 
     def rowCount(self, parent=QModelIndex()):
@@ -57,6 +59,8 @@ class ChatModel(QAbstractListModel):
             return msg.get('showDateHeader', False)
         elif role == self.IsEncryptedRole:
             return msg.get('isEncrypted', False)
+        elif role == self.IsEditedRole:
+            return msg.get('isEdited', False)
         return None
 
     def set_messages(self, messages):
@@ -76,7 +80,7 @@ class ChatModel(QAbstractListModel):
         self._messages = processed
         self.endResetModel()
 
-    def add_message(self, sender, body, timestamp, is_me, msg_id=None, status='sent', date_header='', is_encrypted=False):
+    def add_message(self, sender, body, timestamp, is_me, msg_id=None, status='sent', date_header='', is_encrypted=False, is_edited=False):
         """Append a single message to the active chat list."""
         self.beginInsertRows(QModelIndex(), len(self._messages), len(self._messages))
         show_header = False
@@ -92,7 +96,8 @@ class ChatModel(QAbstractListModel):
             'status': status,
             'dateHeader': date_header,
             'showDateHeader': show_header,
-            'isEncrypted': is_encrypted
+            'isEncrypted': is_encrypted,
+            'isEdited': is_edited
         })
         self.endInsertRows()
 
@@ -104,6 +109,29 @@ class ChatModel(QAbstractListModel):
                 self.dataChanged.emit(self.index(idx), self.index(idx), [self.StatusRole])
                 return True
         return False
+
+    def update_message_body(self, msg_id, new_body, is_edited=True):
+        """Update the body of a message with a specific database ID."""
+        for idx, msg in enumerate(self._messages):
+            if msg.get('msgId') == msg_id:
+                msg['body'] = new_body
+                msg['isEdited'] = is_edited
+                self.dataChanged.emit(self.index(idx), self.index(idx), [self.BodyRole, self.IsEditedRole])
+                return True
+        return False
+
+    @Slot(result=dict)
+    def getLastMyMessage(self):
+        """Find the last message sent by the current user."""
+        for idx in range(len(self._messages) - 1, -1, -1):
+            msg = self._messages[idx]
+            if msg.get('isMe'):
+                return {
+                    'msgId': msg.get('msgId'),
+                    'body': msg.get('body'),
+                    'index': idx
+                }
+        return {}
 
     def remove_message(self, row):
         """Remove a message at a specific row index."""

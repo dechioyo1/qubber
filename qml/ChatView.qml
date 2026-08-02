@@ -13,6 +13,39 @@ Item {
     property bool sidebarCollapsed: false
     property bool showRightSidebar: false
 
+    property int editingMsgId: 0
+    property string editingMsgText: ""
+    property int editingRowIndex: -1
+
+    Connections {
+        target: xmppBackend
+        function onActiveChatJidChanged(jid) {
+            root.cancelEditing();
+        }
+    }
+
+    function startEditingMessage(msgId, text, rowIndex) {
+        root.editingMsgId = msgId;
+        root.editingMsgText = text;
+        root.editingRowIndex = rowIndex !== undefined ? rowIndex : -1;
+        messageInput.text = text;
+        messageInput.forceActiveFocus();
+        messageInput.cursorPosition = text.length;
+    }
+
+    function cancelEditing() {
+        root.editingMsgId = 0;
+        root.editingMsgText = "";
+        root.editingRowIndex = -1;
+        messageInput.text = "";
+    }
+
+    function scrollToEditingMessage() {
+        if (root.editingRowIndex >= 0) {
+            chatHistoryView.positionViewAtIndex(root.editingRowIndex, ListView.Center);
+        }
+    }
+
     function confirmSendFile(url) {
         if (!url || !xmppBackend || xmppBackend.activeChatJid === "")
             return;
@@ -360,7 +393,7 @@ Item {
                                     implicitWidth: 32
                                     implicitHeight: 32
 
-                                    contentItem: Image {
+                                    contentItem: TintedIcon {
                                         anchors.centerIn: parent
                                         width: 20
                                         height: 20
@@ -411,11 +444,12 @@ Item {
 
                                                 contentItem: RowLayout {
                                                     spacing: 10
-                                                    Image {
+                                                    TintedIcon {
                                                         Layout.leftMargin: 8
                                                         width: 18
                                                         height: 18
-                                                        source: "icons/lock_muted.svg"
+                                                        source: "icons/lock.svg"
+                                                        color: window.colMuted
                                                         sourceSize: Qt.size(18, 18)
                                                     }
                                                     Text {
@@ -453,11 +487,12 @@ Item {
 
                                                 contentItem: RowLayout {
                                                     spacing: 10
-                                                    Image {
+                                                    TintedIcon {
                                                         Layout.leftMargin: 8
                                                         width: 18
                                                         height: 18
-                                                        source: "icons/lock_primary.svg"
+                                                        source: "icons/lock.svg"
+                                                        color: window.colPrimary
                                                         sourceSize: Qt.size(18, 18)
                                                     }
                                                     Text {
@@ -496,7 +531,7 @@ Item {
                                     implicitWidth: 32
                                     implicitHeight: 32
 
-                                    contentItem: Image {
+                                    contentItem: TintedIcon {
                                         anchors.centerIn: parent
                                         width: 20
                                         height: 20
@@ -520,11 +555,12 @@ Item {
                                     implicitWidth: 32
                                     implicitHeight: 32
 
-                                    contentItem: Image {
+                                    contentItem: TintedIcon {
                                         anchors.centerIn: parent
                                         width: 20
                                         height: 20
-                                        source: moreHorizBtn.hovered ? "icons/more_horiz_white.svg" : "icons/more_horiz_muted.svg"
+                                        source: "icons/more_horiz.svg"
+                                        color: moreHorizBtn.hovered ? "white" : window.colMuted
                                         sourceSize: Qt.size(20, 20)
                                     }
 
@@ -576,6 +612,16 @@ Item {
                         }
                     }
 
+                    // Message Editing Panel
+                    InteractMessagePanelDelegate {
+                        id: interactmessagepaneldelegate
+                        editingMsgId: root.editingMsgId
+                        editingText: root.editingMsgText
+                        editingRowIndex: root.editingRowIndex
+                        onCancelRequested: root.cancelEditing()
+                        onJumpRequested: root.scrollToEditingMessage()
+                    }
+
                     // Message Input Bar
                     Rectangle {
                         Layout.fillWidth: true
@@ -601,11 +647,12 @@ Item {
                                 implicitWidth: 32
                                 implicitHeight: 32
 
-                                contentItem: Image {
+                                contentItem: TintedIcon {
                                     anchors.centerIn: parent
                                     width: 20
                                     height: 20
-                                    source: attachBtn.hovered ? "icons/attach_file_white.svg" : "icons/attach_file_muted.svg"
+                                    source: "icons/attach_file.svg"
+                                    color: attachBtn.hovered ? "white" : window.colMuted
                                     sourceSize: Qt.size(20, 20)
                                 }
 
@@ -643,11 +690,12 @@ Item {
 
                                             contentItem: RowLayout {
                                                 spacing: 14
-                                                Image {
+                                                TintedIcon {
                                                     Layout.leftMargin: 10
                                                     width: 24
                                                     height: 24
-                                                    source: attachImageBtn.hovered ? "icons/image_white.svg" : "icons/image_muted.svg"
+                                                    source: "icons/image.svg"
+                                                    color: attachImageBtn.hovered ? "white" : window.colMuted
                                                     sourceSize: Qt.size(24, 24)
                                                 }
                                                 Text {
@@ -679,11 +727,12 @@ Item {
 
                                             contentItem: RowLayout {
                                                 spacing: 14
-                                                Image {
+                                                TintedIcon {
                                                     Layout.leftMargin: 10
                                                     width: 24
                                                     height: 24
-                                                    source: attachFileBtn.hovered ? "icons/description_white.svg" : "icons/description_muted.svg"
+                                                    source: "icons/description.svg"
+                                                    color: attachFileBtn.hovered ? "white" : window.colMuted
                                                     sourceSize: Qt.size(24, 24)
                                                 }
                                                 Text {
@@ -715,11 +764,12 @@ Item {
 
                                             contentItem: RowLayout {
                                                 spacing: 14
-                                                Image {
+                                                TintedIcon {
                                                     Layout.leftMargin: 10
                                                     width: 24
                                                     height: 24
-                                                    source: attachLocationBtn.hovered ? "icons/location_on_white.svg" : "icons/location_on_muted.svg"
+                                                    source: "icons/location_on.svg"
+                                                    color: attachLocationBtn.hovered ? "white" : window.colMuted
                                                     sourceSize: Qt.size(24, 24)
                                                 }
                                                 Text {
@@ -747,7 +797,7 @@ Item {
 
                             TextField {
                                 id: messageInput
-                                placeholderText: "Type a message..."
+                                placeholderText: root.editingMsgId !== 0 ? "Edit message..." : "Type a message..."
                                 placeholderTextColor: "#4b5563"
                                 color: window.colText
                                 Layout.fillWidth: true
@@ -767,20 +817,37 @@ Item {
                                             event.accepted = true;
                                             root.confirmSendFile(clipUrl);
                                         }
+                                    } else if (event.key === Qt.Key_Escape && root.editingMsgId !== 0) {
+                                        event.accepted = true;
+                                        root.cancelEditing();
+                                    } else if (event.key === Qt.Key_Up && messageInput.text === "" && root.editingMsgId === 0) {
+                                        var lastMsg = chatModel.getLastMyMessage();
+                                        if (lastMsg && lastMsg.msgId) {
+                                            event.accepted = true;
+                                            root.startEditingMessage(lastMsg.msgId, lastMsg.body, lastMsg.index);
+                                        }
                                     }
                                 }
 
                                 onTextChanged: {
-                                    if (xmppBackend && xmppBackend.activeChatJid !== "") {
+                                    if (xmppBackend && xmppBackend.activeChatJid !== "" && root.editingMsgId === 0) {
                                         xmppBackend.sendTypingNotification(xmppBackend.activeChatJid, text.trim().length > 0);
                                     }
                                 }
 
                                 onAccepted: {
-                                    if (text.trim() !== "") {
-                                        xmppBackend.sendTypingNotification(xmppBackend.activeChatJid, false);
-                                        xmppBackend.sendMessage(text.trim());
-                                        text = "";
+                                    var txt = text.trim();
+                                    if (txt !== "") {
+                                        if (xmppBackend && xmppBackend.activeChatJid !== "") {
+                                            xmppBackend.sendTypingNotification(xmppBackend.activeChatJid, false);
+                                        }
+                                        if (root.editingMsgId !== 0) {
+                                            xmppBackend.editMessage(root.editingMsgId, txt);
+                                            root.cancelEditing();
+                                        } else {
+                                            xmppBackend.sendMessage(txt);
+                                            text = "";
+                                        }
                                     }
                                 }
                             }
@@ -789,13 +856,13 @@ Item {
                                 id: sendBtn
                                 implicitWidth: 32
                                 implicitHeight: 32
-                                visible: messageInput.text.trim() !== ""
+                                visible: messageInput.text.trim() !== "" || root.editingMsgId !== 0
 
-                                contentItem: Image {
+                                contentItem: TintedIcon {
                                     anchors.centerIn: parent
                                     width: 18
                                     height: 18
-                                    source: "icons/send.svg"
+                                    source: root.editingMsgId !== 0 ? "icons/check.svg" : "icons/send.svg"
                                     color: sendBtn.down ? window.colPrimaryDark : (sendBtn.hovered ? window.colAccent : window.colPrimary)
                                     sourceSize: Qt.size(18, 18)
                                 }
@@ -806,8 +873,16 @@ Item {
                                 }
 
                                 onClicked: {
-                                    xmppBackend.sendMessage(messageInput.text.trim());
-                                    messageInput.text = "";
+                                    var txt = messageInput.text.trim();
+                                    if (txt !== "") {
+                                        if (root.editingMsgId !== 0) {
+                                            xmppBackend.editMessage(root.editingMsgId, txt);
+                                            root.cancelEditing();
+                                        } else {
+                                            xmppBackend.sendMessage(txt);
+                                            messageInput.text = "";
+                                        }
+                                    }
                                 }
                             }
                         }

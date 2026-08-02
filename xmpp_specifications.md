@@ -48,7 +48,7 @@ A comprehensive list of XMPP RFC standards, XMPP Extension Protocols (XEPs), and
 - [x] **XEP-0085: Chat State Notifications** — Real-time typing status (`composing`, `paused`, `active`, `inactive`, `gone`)
 - [x] **XEP-0184: Message Delivery Receipts** — Delivery acknowledgments and multi-stage status indicators (sending, sent, delivered)
 - [ ] **XEP-0280: Message Carbons** — Real-time bidirectional message synchronization across multiple online client instances
-- [ ] **XEP-0308: Last Message Correction** — Editing and updating previously transmitted messages
+- [x] **XEP-0308: Last Message Correction** — Editing and updating previously transmitted messages
 - [ ] **XEP-0313: Message Archive Management (MAM)** — Querying server-side message history for offline catching and pagination
 - [ ] **XEP-0333: Chat Markers** — Granular chat markers (`received`, `displayed`, `acknowledged`) for read-receipt UX
 - [ ] **XEP-0359: Unique and Stable Stanza IDs** — Canonical, server-assigned `origin-id` and `stanza-id` tracking
